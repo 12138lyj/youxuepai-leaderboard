@@ -1,7 +1,7 @@
 (function startLeaderboardApp() {
   'use strict';
 
-  const STORAGE_KEY = 'youxuepai-leaderboard-state-v1';
+  const STORAGE_KEY = 'youxuepai-leaderboard-state-v2';
   const State = globalThis.LeaderboardState;
   const Ranks = globalThis.RankRules;
 

@@ -219,19 +219,18 @@
 
   function createDefaultState() {
     return normalizeState({
-      lesson: 12,
+      lesson: 1,
       students: [
-        { id: 's1', name: '刘彦均', notebook: 96, errorBook: 91, draft: 94, module: 90, totalPoints: 1260 },
-        { id: 's2', name: '王艺茹', notebook: 94, errorBook: 98, draft: 92, module: 96, totalPoints: 1689 },
-        { id: 's3', name: '孙亦赓', notebook: 92, errorBook: 94, draft: 97, module: 93, totalPoints: 1453 },
-        { id: 's4', name: '王俊涵', notebook: 90, errorBook: 89, draft: 91, module: 92, totalPoints: 1194 },
-        { id: 's5', name: '崔晟宸', notebook: 93, errorBook: 92, draft: 88, module: 95, totalPoints: 1264 },
-        { id: 's6', name: '李昱慷', notebook: 89, errorBook: 95, draft: 93, module: 91, totalPoints: 1422 },
-        { id: 's7', name: '李梓玉', notebook: 91, errorBook: 90, draft: 95, module: 94, totalPoints: 1392 },
-        { id: 's8', name: '张艺涵', notebook: 88, errorBook: 93, draft: 90, module: 89, totalPoints: 1225 },
-        { id: 's9', name: '李栩嘉', notebook: 86, errorBook: 87, draft: 89, module: 88, totalPoints: 722 },
-        { id: 's10', name: '陆怡辰', notebook: 85, errorBook: 88, draft: 86, module: 87, totalPoints: 464 },
-        { id: 's11', name: '张予宸', notebook: 87, errorBook: 86, draft: 87, module: 90, totalPoints: 1138 },
+        { id: 's1', name: '崔晟宸', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's2', name: '陆怡辰', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's3', name: '李梓玉', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's4', name: '李栩嘉', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's5', name: '韩宝锐', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's6', name: '杨晴雯', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's7', name: '刘洛扬', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's8', name: '王浩蕴', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's9', name: '孙亦康', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
+        { id: 's10', name: '黄诗茹', notebook: 0, errorBook: 0, draft: 0, module: 0, totalPoints: 0 },
       ],
     });
   }
@@ -281,7 +280,7 @@
   function createDefaultAppState() {
     const classroom = normalizeClassroom({
       id: 'class-1',
-      name: '学能训练班',
+      name: '暑假学习技能训练',
       ...createDefaultState(),
     });
     return { activeClassId: classroom.id, classes: [classroom] };
