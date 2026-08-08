@@ -2,8 +2,20 @@
   'use strict';
 
   const STORAGE_KEY = 'youxuepai-leaderboard-state-v2';
+  const PENDING_KEY = 'youxuepai-leaderboard-pending-v1';
   const State = globalThis.LeaderboardState;
   const Ranks = globalThis.RankRules;
+  const Cloud = globalThis.LeaderboardCloud;
+  const cloudConfig = globalThis.LeaderboardCloudConfig;
+  const cloudClientOverride = globalThis.LeaderboardCloudClientOverride;
+  const canUseRemoteCloud = Boolean(
+    Cloud
+    && cloudConfig
+    && (cloudClientOverride || (
+      globalThis.supabase
+      && (location.protocol === 'http:' || location.protocol === 'https:')
+    )),
+  );
 
   if (!State || !Ranks) {
     throw new Error('排行榜数据模块未正确加载');
@@ -37,6 +49,9 @@
   let editingClassId = null;
   let rankupReturnFocus = null;
   let rankupAutoCloseTimer = null;
+  let cloudSync = null;
+  let cloudRevision = 0;
+  let isAdmin = !canUseRemoteCloud;
 
   const elements = {
     lessonSubtitle: document.querySelector('#lesson-subtitle'),
@@ -57,6 +72,13 @@
     addClassForm: document.querySelector('#add-class-form'),
     newClassName: document.querySelector('#new-class-name'),
     editButton: document.querySelector('#edit-button'),
+    cloudStatus: document.querySelector('#cloud-status'),
+    adminLogout: document.querySelector('#admin-logout'),
+    adminLoginDialog: document.querySelector('#admin-login-dialog'),
+    adminLoginForm: document.querySelector('#admin-login-form'),
+    adminPassword: document.querySelector('#admin-password'),
+    adminLoginError: document.querySelector('#admin-login-error'),
+    adminLoginCancel: document.querySelector('#admin-login-cancel'),
     drawer: document.querySelector('#edit-drawer'),
     drawerBackdrop: document.querySelector('#drawer-backdrop'),
     drawerClose: document.querySelector('#drawer-close'),
@@ -85,11 +107,166 @@
     }
   }
 
+  function saveLocalState() {
+    localStorage.setItem(STORAGE_KEY, State.serializeAppState(appState));
+  }
+
   function persist() {
     try {
-      localStorage.setItem(STORAGE_KEY, State.serializeAppState(appState));
+      saveLocalState();
     } catch {
-      showToast('浏览器无法保存数据，本次修改仅临时有效');
+      showToast('浏览器无法保存本地备份');
+    }
+    if (!cloudSync || !isAdmin) return;
+    try {
+      localStorage.setItem(PENDING_KEY, State.serializeAppState(appState));
+    } catch {
+      showToast('浏览器无法保存待同步备份');
+    }
+    cloudSync.queueSave(appState);
+  }
+
+  function setCloudStatus(status) {
+    const labels = {
+      connecting: '正在连接',
+      synced: '已同步',
+      saving: '同步中',
+      offline: '离线',
+      failed: '同步失败',
+    };
+    const nextStatus = Object.prototype.hasOwnProperty.call(labels, status) ? status : 'offline';
+    elements.cloudStatus.className = `cloud-status ${nextStatus}`;
+    elements.cloudStatus.querySelector('span').textContent = labels[nextStatus];
+    if (nextStatus === 'synced' && isAdmin && !cloudSync?.getPendingPayload()) {
+      localStorage.removeItem(PENDING_KEY);
+    }
+  }
+
+  function updateAdminUi() {
+    elements.adminLogout.hidden = !isAdmin || !cloudSync;
+    elements.addClassForm.hidden = !isAdmin;
+    renderClassSwitcher();
+    refreshIcons();
+  }
+
+  function requestEditAccess() {
+    if (isAdmin) {
+      openDrawer();
+      return;
+    }
+    if (!cloudSync) {
+      showToast('云端连接失败，请刷新后重试');
+      return;
+    }
+    elements.adminLoginError.textContent = '';
+    elements.adminPassword.value = '';
+    if (!elements.adminLoginDialog.open) elements.adminLoginDialog.showModal();
+    elements.adminPassword.focus();
+  }
+
+  function requireAdmin() {
+    if (isAdmin) return true;
+    requestEditAccess();
+    return false;
+  }
+
+  function applyRemoteState(row) {
+    appState = State.normalizeAppState(row.payload);
+    cloudRevision = Number(row.revision) || cloudRevision;
+    try {
+      saveLocalState();
+    } catch {
+      showToast('浏览器无法保存本地备份');
+    }
+    renderDisplay();
+    if (elements.drawer.classList.contains('is-open')) renderEditor();
+  }
+
+  async function initializeCloud() {
+    if (!canUseRemoteCloud) {
+      setCloudStatus('offline');
+      updateAdminUi();
+      return;
+    }
+
+    try {
+      const client = cloudClientOverride || globalThis.supabase.createClient(
+        cloudConfig.url,
+        cloudConfig.anonKey,
+      );
+      cloudSync = Cloud.createCloudSync({
+        client,
+        editorEmail: cloudConfig.editorEmail,
+        recordId: cloudConfig.recordId,
+        normalize: State.normalizeAppState,
+        onStatus: setCloudStatus,
+        onRemote: applyRemoteState,
+      });
+      cloudSync.onAuthChange((event) => {
+        if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
+          isAdmin = false;
+          closeDrawer();
+          updateAdminUi();
+        } else if (event === 'SIGNED_IN') {
+          isAdmin = true;
+          updateAdminUi();
+        }
+      });
+
+      isAdmin = await cloudSync.isAuthenticated();
+      updateAdminUi();
+
+      const pending = isAdmin ? localStorage.getItem(PENDING_KEY) : null;
+      if (pending) {
+        const pendingState = State.parseAppState(pending, appState);
+        cloudSync.queueSave(pendingState);
+        await cloudSync.flush();
+      }
+
+      try {
+        const row = await cloudSync.load();
+        applyRemoteState(row);
+      } catch {
+        setCloudStatus(navigator.onLine ? 'failed' : 'offline');
+      }
+      cloudSync.subscribe();
+    } catch {
+      setCloudStatus(navigator.onLine ? 'failed' : 'offline');
+      updateAdminUi();
+    }
+  }
+
+  async function submitAdminLogin(event) {
+    event.preventDefault();
+    if (!cloudSync) return;
+    const submitButton = elements.adminLoginForm.querySelector('button[type="submit"]');
+    const password = elements.adminPassword.value;
+    elements.adminLoginError.textContent = '';
+    submitButton.disabled = true;
+    try {
+      await cloudSync.signIn(password);
+      isAdmin = true;
+      updateAdminUi();
+      elements.adminLoginDialog.close();
+      openDrawer();
+    } catch (error) {
+      elements.adminLoginError.textContent = error?.message || '登录失败，请检查密码';
+    } finally {
+      elements.adminPassword.value = '';
+      submitButton.disabled = false;
+    }
+  }
+
+  async function signOutAdmin() {
+    if (!cloudSync) return;
+    try {
+      await cloudSync.signOut();
+      isAdmin = false;
+      closeDrawer();
+      updateAdminUi();
+      showToast('已退出管理模式');
+    } catch {
+      showToast('退出失败，请稍后重试');
     }
   }
 
@@ -176,7 +353,7 @@
     const disableDelete = appState.classes.length <= 1;
     elements.classList.innerHTML = appState.classes.map((classroom) => {
       const isCurrent = classroom.id === appState.activeClassId;
-      if (classroom.id === editingClassId) {
+      if (isAdmin && classroom.id === editingClassId) {
         return `
           <div class="class-row is-editing" data-class-row>
             <form class="class-rename-form" data-class-rename-form="${escapeHtml(classroom.id)}">
@@ -199,12 +376,14 @@
             </span>
             <span>${escapeHtml(classroom.name)}</span>
           </button>
-          <button class="class-row-action" type="button" data-class-rename="${escapeHtml(classroom.id)}" aria-label="重命名${escapeHtml(classroom.name)}" title="重命名">
-            <i data-lucide="pencil" aria-hidden="true"></i>
-          </button>
-          <button class="class-row-action class-delete-button" type="button" data-class-delete="${escapeHtml(classroom.id)}" aria-label="删除${escapeHtml(classroom.name)}" title="删除班级" ${disableDelete ? 'disabled' : ''}>
-            <i data-lucide="trash-2" aria-hidden="true"></i>
-          </button>
+          ${isAdmin ? `
+            <button class="class-row-action" type="button" data-class-rename="${escapeHtml(classroom.id)}" aria-label="重命名${escapeHtml(classroom.name)}" title="重命名">
+              <i data-lucide="pencil" aria-hidden="true"></i>
+            </button>
+            <button class="class-row-action class-delete-button" type="button" data-class-delete="${escapeHtml(classroom.id)}" aria-label="删除${escapeHtml(classroom.name)}" title="删除班级" ${disableDelete ? 'disabled' : ''}>
+              <i data-lucide="trash-2" aria-hidden="true"></i>
+            </button>
+          ` : ''}
         </div>
       `;
     }).join('');
@@ -492,6 +671,7 @@
   }
 
   function addClassroom(rawName) {
+    if (!requireAdmin()) return;
     const name = rawName.trim();
     if (!name) {
       showToast('班级名称不能为空');
@@ -525,6 +705,7 @@
   }
 
   function beginRenameClassroom(id) {
+    if (!requireAdmin()) return;
     editingClassId = id;
     renderClassSwitcher();
     refreshIcons();
@@ -538,6 +719,7 @@
   }
 
   function finishRenameClassroom(id, rawName) {
+    if (!requireAdmin()) return;
     const classroom = appState.classes.find((candidate) => candidate.id === id);
     const name = rawName.trim();
     editingClassId = null;
@@ -556,6 +738,7 @@
   }
 
   function removeClassroom(id) {
+    if (!requireAdmin()) return;
     const classroom = appState.classes.find((candidate) => candidate.id === id);
     if (!classroom || appState.classes.length <= 1) {
       showToast('至少保留一个班级');
@@ -572,6 +755,7 @@
   }
 
   function updateLesson(rawValue) {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     const nextLesson = Math.max(1, State.normalizeScore(rawValue || 1));
     if (nextLesson === classroom.lesson) {
@@ -593,6 +777,7 @@
   }
 
   function updateCollectiveGoal(rawValue) {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     const nextGoal = Math.max(1, State.normalizeScore(rawValue || State.DEFAULT_COLLECTIVE_GOAL));
     if (nextGoal === classroom.collectiveGoal) {
@@ -607,6 +792,7 @@
   }
 
   function updateStudentFromInput(input) {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     const student = classroom.students.find((candidate) => candidate.id === input.dataset.studentId);
     if (!student) return;
@@ -658,6 +844,7 @@
   }
 
   function updateStudentBadge(button) {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     const student = classroom.students.find((candidate) => candidate.id === button.dataset.badgeStudentId);
     const field = button.dataset.badgeField;
@@ -681,6 +868,7 @@
   }
 
   function addStudent() {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     let suffix = Date.now();
     while (classroom.students.some((student) => student.id === `student-${suffix}`)) suffix += 1;
@@ -706,6 +894,7 @@
   }
 
   function removeStudent(id) {
+    if (!requireAdmin()) return;
     const classroom = activeClassroom();
     const student = classroom.students.find((candidate) => candidate.id === id);
     if (!student || classroom.students.length <= 1) {
@@ -721,6 +910,7 @@
   }
 
   function restoreDefaultData() {
+    if (!requireAdmin()) return;
     if (!globalThis.confirm('确定恢复示例数据吗？当前班级的修改将被覆盖。')) return;
     const sample = State.createDefaultState();
     appState = State.updateActiveClassroom(appState, (classroom) => ({
@@ -849,7 +1039,15 @@
     const deleteButton = event.target.closest('[data-class-delete]');
     if (deleteButton) removeClassroom(deleteButton.dataset.classDelete);
   });
-  elements.editButton.addEventListener('click', openDrawer);
+  elements.editButton.addEventListener('click', requestEditAccess);
+  elements.adminLoginForm.addEventListener('submit', submitAdminLogin);
+  elements.adminLoginCancel.addEventListener('click', () => {
+    elements.adminLoginError.textContent = '';
+    elements.adminPassword.value = '';
+    elements.adminLoginDialog.close();
+    elements.editButton.focus();
+  });
+  elements.adminLogout.addEventListener('click', signOutAdmin);
   elements.drawerClose.addEventListener('click', closeDrawer);
   elements.drawerDone.addEventListener('click', closeDrawer);
   elements.drawerBackdrop.addEventListener('click', closeDrawer);
@@ -888,4 +1086,6 @@
 
   renderDisplay();
   setView(location.hash === '#ranks' ? 'ranks' : 'scores');
+  updateAdminUi();
+  void initializeCloud();
 })();

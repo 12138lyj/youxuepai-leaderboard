@@ -9,6 +9,180 @@ const projectRoot = path.join(__dirname, '..');
 const indexPath = path.join(projectRoot, 'index.html');
 const stylesPath = path.join(projectRoot, 'styles.css');
 
+function makeCloudState(points = 0) {
+  return {
+    activeClassId: 'class-1',
+    classes: [{
+      id: 'class-1',
+      name: '云端测试班',
+      lesson: 1,
+      students: [{
+        id: 's1',
+        name: '甲',
+        notebook: 0,
+        errorBook: 0,
+        draft: 0,
+        module: 0,
+        totalPoints: points,
+        badges: { notebook: 'white', errorBook: 'white', draft: 'white', module: 'white' },
+      }],
+      collectiveGoal: 15000,
+      previousScores: {},
+      honorEvents: [],
+      lessonRecords: {},
+      carryoverPoints: {},
+    }],
+  };
+}
+
+async function openCloudPage({ authenticated = false } = {}) {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.setDefaultTimeout(3000);
+  await page.addInitScript(({ isAuthenticated, initialPayload }) => {
+    let signedIn = isAuthenticated;
+    let nextLoginError = null;
+    let authCallback = null;
+    let remoteCallback = null;
+    const record = {
+      payload: initialPayload,
+      revision: 1,
+      updated_at: '2026-08-08T00:00:00.000Z',
+    };
+    const savedPayloads = [];
+
+    globalThis.LeaderboardCloudConfig = Object.freeze({
+      url: 'https://test.supabase.co',
+      anonKey: 'test-anon-key',
+      editorEmail: 'coach@example.com',
+      recordId: 'main',
+    });
+    globalThis.LeaderboardCloudClientOverride = {
+      from() {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          async single() { return { data: record, error: null }; },
+        };
+      },
+      rpc(name, params) {
+        savedPayloads.push(params.p_payload);
+        record.payload = params.p_payload;
+        record.revision += 1;
+        return {
+          async single() { return { data: record, error: null }; },
+        };
+      },
+      auth: {
+        async signInWithPassword() {
+          if (nextLoginError) {
+            const message = nextLoginError;
+            nextLoginError = null;
+            return { data: { session: null }, error: new Error(message) };
+          }
+          signedIn = true;
+          const session = { user: { id: 'editor' } };
+          authCallback?.('SIGNED_IN', session);
+          return { data: { session }, error: null };
+        },
+        async getSession() {
+          return { data: { session: signedIn ? { user: { id: 'editor' } } : null } };
+        },
+        async signOut() {
+          signedIn = false;
+          authCallback?.('SIGNED_OUT', null);
+          return { error: null };
+        },
+        onAuthStateChange(callback) {
+          authCallback = callback;
+          return { data: { subscription: { unsubscribe() {} } } };
+        },
+      },
+      channel() {
+        return {
+          on(event, filter, callback) {
+            remoteCallback = callback;
+            return this;
+          },
+          subscribe() { return this; },
+        };
+      },
+      async removeChannel() {},
+    };
+    globalThis.__fakeCloudControl = {
+      rejectNextLogin(message) { nextLoginError = message; },
+      emitRemote(payload, revision) {
+        record.payload = payload;
+        record.revision = revision;
+        remoteCallback?.({ new: { ...record } });
+      },
+      getSavedPayloads() { return savedPayloads; },
+    };
+  }, { isAuthenticated: authenticated, initialPayload: makeCloudState() });
+
+  try {
+    await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
+    await page.waitForSelector('#cloud-status.synced');
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+
+  return {
+    browser,
+    page,
+    fakeCloud: {
+      rejectNextLogin: (message) => page.evaluate((value) => {
+        globalThis.__fakeCloudControl.rejectNextLogin(value);
+      }, message),
+      emitRemote: (payload, revision) => page.evaluate(({ value, nextRevision }) => {
+        globalThis.__fakeCloudControl.emitRemote(value, nextRevision);
+      }, { value: payload, nextRevision: revision }),
+    },
+  };
+}
+
+test('public viewers can read but must sign in before editing', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: false });
+
+  try {
+    await page.click('#edit-button');
+    assert.equal(await page.locator('#admin-login-dialog').getAttribute('open'), '');
+    assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'true');
+
+    await page.fill('#admin-password', 'wrong');
+    await fakeCloud.rejectNextLogin('密码错误');
+    await page.click('#admin-login-form button[type="submit"]');
+    assert.match(await page.locator('#admin-login-error').textContent(), /密码错误/);
+    assert.equal(await page.locator('#admin-password').inputValue(), '');
+
+    await page.fill('#admin-password', 'correct');
+    await page.click('#admin-login-form button[type="submit"]');
+    assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'false');
+    assert.equal(await page.locator('#admin-logout').isVisible(), true);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a cloud update replaces display state without replaying promotion animation', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: false });
+
+  try {
+    await fakeCloud.emitRemote(makeCloudState(600), 4);
+    await page.waitForFunction(() => (
+      document.querySelector('[data-rank-row="s1"] .rank-points')?.textContent.trim() === '600 分'
+    ));
+    assert.equal(await page.locator('[data-rank-row="s1"] .rank-points').textContent(), '600 分');
+    assert.equal(await page.locator('#rankup-overlay.is-active').count(), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('renders cloud status and password-only admin dialog', async () => {
   const html = fs.readFileSync(indexPath, 'utf8');
   assert.match(html, /id="cloud-status"/);
