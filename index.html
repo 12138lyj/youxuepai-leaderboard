@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>学能训练班 · 积分排行榜</title>
-  <link rel="stylesheet" href="styles.css?v=20260808-cloud-v1">
+  <link rel="stylesheet" href="styles.css?v=20260808-ranks-audio-v1">
 </head>
 <body>
   <header class="app-header">
@@ -109,7 +109,7 @@
             <i data-lucide="list-ordered" aria-hidden="true"></i>
             四项课堂排行
           </h2>
-          <p>同分时按姓名排序 · 段位每 300 分升一档</p>
+          <p>同分时按姓名排序 · 段位阈值：300 · 600 · 1000 · 1600 · 2200 · 3000 分</p>
         </div>
         <div id="boards-grid" class="boards-grid"></div>
       </section>
@@ -120,7 +120,7 @@
         <div>
           <p class="eyebrow">累计每一分 · 向下一段位出发</p>
           <h1 id="ranks-title">段位排行</h1>
-          <p class="subtitle">累计积分实时计算段位 · 每 300 分升一档</p>
+          <p class="subtitle">累计积分实时计算段位 · 阈值：300 · 600 · 1000 · 1600 · 2200 · 3000 分</p>
         </div>
         <div class="rank-legend" aria-label="段位顺序">
           <span>青铜</span><i data-lucide="chevron-right" aria-hidden="true"></i>
@@ -189,6 +189,34 @@
           <input id="collective-goal-input" type="number" min="1" step="100" inputmode="numeric">
         </label>
       </div>
+
+      <section class="sound-settings" aria-labelledby="sound-settings-title">
+        <div class="sound-settings-heading">
+          <div>
+            <h3 id="sound-settings-title">晋级音效</h3>
+            <p>段位升级时播放，设置只保存在当前浏览器</p>
+          </div>
+          <button id="rankup-sound-preview" class="secondary-action sound-preview-button" type="button">
+            <i data-lucide="play" aria-hidden="true"></i>
+            试听
+          </button>
+        </div>
+        <div class="sound-settings-controls">
+          <label class="sound-style-field" for="rankup-sound-style">
+            <span>音效风格</span>
+            <select id="rankup-sound-style">
+              <option value="horn">王者号角</option>
+              <option value="crystal">水晶解锁</option>
+              <option value="star">星耀冲刺</option>
+            </select>
+          </label>
+          <label class="sound-toggle">
+            <input id="rankup-sound-enabled" type="checkbox">
+            <span class="sound-toggle-track" aria-hidden="true"></span>
+            <span>播放晋级音效</span>
+          </label>
+        </div>
+      </section>
 
       <div class="editor-heading">
         <div>
@@ -301,12 +329,13 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="vendor/lucide.min.js?v=20260808-cloud-v1"></script>
-  <script src="vendor/supabase.min.js?v=20260808-cloud-v1"></script>
-  <script src="src/rank-rules.js?v=20260808-cloud-v1"></script>
-  <script src="src/state.js?v=20260808-cloud-v1"></script>
-  <script src="src/cloud-config.js?v=20260808-cloud-v1"></script>
-  <script src="src/cloud.js?v=20260808-cloud-v1"></script>
-  <script src="src/app.js?v=20260808-cloud-v1"></script>
+  <script src="vendor/lucide.min.js?v=20260808-ranks-audio-v1"></script>
+  <script src="vendor/supabase.min.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/rank-rules.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/state.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/cloud-config.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/cloud.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/rankup-sound.js?v=20260808-ranks-audio-v1"></script>
+  <script src="src/app.js?v=20260808-ranks-audio-v1"></script>
 </body>
 </html>

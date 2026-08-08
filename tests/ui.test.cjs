@@ -377,9 +377,53 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/state.js',
     'src/cloud-config.js',
     'src/cloud.js',
+    'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260808-cloud-v1`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260808-ranks-audio-v1`), true, `${asset} must be versioned`);
+  }
+});
+
+test('shows the coach-defined rank thresholds in both leaderboard views', () => {
+  const html = fs.readFileSync(indexPath, 'utf8');
+  assert.match(html, /300[\s·/]+600[\s·/]+1000[\s·/]+1600[\s·/]+2200[\s·/]+3000/);
+  assert.doesNotMatch(html, /每 300 分升一档/);
+});
+
+test('exposes rank-up sound choices and a local mute control', () => {
+  const html = fs.readFileSync(indexPath, 'utf8');
+  assert.match(html, /id="rankup-sound-style"/);
+  assert.match(html, /王者号角/);
+  assert.match(html, /水晶解锁/);
+  assert.match(html, /星耀冲刺/);
+  assert.match(html, /id="rankup-sound-enabled"/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260808-ranks-audio-v1/);
+});
+
+test('plays the selected rank-up sound when a student is promoted', async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  });
+
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: 'load' });
+    await page.evaluate(() => {
+      window.__rankupSoundCalls = [];
+      window.RankupSound.play = (style) => window.__rankupSoundCalls.push(style);
+      window.RankupSound.saveSettings({ style: 'crystal', enabled: true });
+    });
+    await page.click('#edit-button');
+    const points = page.locator('input[data-student-id="s9"][data-field="totalPoints"]');
+    await points.fill('300');
+    await points.dispatchEvent('change');
+    await page.waitForSelector('#rankup-overlay.is-active');
+    assert.deepEqual(await page.evaluate(() => window.__rankupSoundCalls), ['crystal']);
+  } finally {
+    await browser.close();
   }
 });
 
@@ -520,7 +564,7 @@ test('editing points updates rank, plays the v2 promotion animation, and persist
 
     await page.click('#edit-button');
     const pointsInput = page.locator('input[data-student-id="s9"][data-field="totalPoints"]');
-    await pointsInput.fill('900');
+    await pointsInput.fill('1200');
     await pointsInput.dispatchEvent('change');
 
     await page.waitForSelector('#rankup-overlay.is-active');
@@ -567,7 +611,7 @@ test('editing points updates rank, plays the v2 promotion animation, and persist
 
     await page.reload({ waitUntil: 'load' });
     await page.click('#edit-button');
-    assert.equal(await page.locator('input[data-student-id="s9"][data-field="totalPoints"]').inputValue(), '900');
+    assert.equal(await page.locator('input[data-student-id="s9"][data-field="totalPoints"]').inputValue(), '1200');
 
     await page.setViewportSize({ width: 390, height: 844 });
     const mobilePointsInput = page.locator('input[data-student-id="s10"][data-field="totalPoints"]');

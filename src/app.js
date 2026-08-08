@@ -6,6 +6,7 @@
   const State = globalThis.LeaderboardState;
   const Ranks = globalThis.RankRules;
   const Cloud = globalThis.LeaderboardCloud;
+  const RankupSound = globalThis.RankupSound;
   const cloudConfig = globalThis.LeaderboardCloudConfig;
   const cloudClientOverride = globalThis.LeaderboardCloudClientOverride;
   const canUseRemoteCloud = Boolean(
@@ -86,6 +87,9 @@
     drawerDone: document.querySelector('#drawer-done'),
     lessonInput: document.querySelector('#lesson-input'),
     collectiveGoalInput: document.querySelector('#collective-goal-input'),
+    rankupSoundStyle: document.querySelector('#rankup-sound-style'),
+    rankupSoundEnabled: document.querySelector('#rankup-sound-enabled'),
+    rankupSoundPreview: document.querySelector('#rankup-sound-preview'),
     editorList: document.querySelector('#student-editor-list'),
     addStudent: document.querySelector('#add-student'),
     restoreData: document.querySelector('#restore-data'),
@@ -598,6 +602,11 @@
     const classroom = activeClassroom();
     elements.lessonInput.value = String(classroom.lesson);
     elements.collectiveGoalInput.value = String(classroom.collectiveGoal);
+    if (RankupSound) {
+      const soundSettings = RankupSound.getSettings();
+      elements.rankupSoundStyle.value = soundSettings.style;
+      elements.rankupSoundEnabled.checked = soundSettings.enabled;
+    }
     const disableDelete = classroom.students.length <= 1;
     elements.editorList.innerHTML = classroom.students.map((student, index) => `
       <section class="student-editor" data-editor-row="${escapeHtml(student.id)}" aria-label="学员 ${index + 1}">
@@ -972,6 +981,7 @@
     void elements.rankupOverlay.offsetWidth;
     elements.rankupOverlay.classList.add('is-active');
     elements.rankupOverlay.setAttribute('aria-hidden', 'false');
+    if (RankupSound) RankupSound.play(RankupSound.getSettings().style);
     refreshIcons();
     requestAnimationFrame(() => elements.rankupOverlay.focus({ preventScroll: true }));
 
@@ -1018,6 +1028,16 @@
     elements.toast.textContent = message;
     elements.toast.classList.add('is-visible');
     toastTimer = setTimeout(() => elements.toast.classList.remove('is-visible'), 2200);
+  }
+
+  function saveRankupSoundSettings() {
+    if (!RankupSound) return;
+    const settings = RankupSound.saveSettings({
+      style: elements.rankupSoundStyle.value,
+      enabled: elements.rankupSoundEnabled.checked,
+    });
+    elements.rankupSoundStyle.value = settings.style;
+    elements.rankupSoundEnabled.checked = settings.enabled;
   }
 
   document.querySelectorAll('[data-view]').forEach((button) => {
@@ -1077,6 +1097,20 @@
   elements.drawerBackdrop.addEventListener('click', closeDrawer);
   elements.lessonInput.addEventListener('change', () => updateLesson(elements.lessonInput.value));
   elements.collectiveGoalInput.addEventListener('change', () => updateCollectiveGoal(elements.collectiveGoalInput.value));
+  elements.rankupSoundStyle.addEventListener('change', () => {
+    saveRankupSoundSettings();
+    const currentStyle = RankupSound.getSettings().style;
+    const option = RankupSound.options.find((candidate) => candidate.id === currentStyle);
+    showToast(`已选择${option?.label || '王者号角'}音效`);
+  });
+  elements.rankupSoundEnabled.addEventListener('change', () => {
+    saveRankupSoundSettings();
+    showToast(elements.rankupSoundEnabled.checked ? '已开启晋级音效' : '已静音晋级音效');
+  });
+  elements.rankupSoundPreview.addEventListener('click', () => {
+    saveRankupSoundSettings();
+    if (!RankupSound.play(RankupSound.getSettings().style)) showToast('晋级音效已静音');
+  });
   elements.addStudent.addEventListener('click', addStudent);
   elements.restoreData.addEventListener('click', restoreDefaultData);
   elements.rankupSkip.addEventListener('click', finishRankupAnimation);

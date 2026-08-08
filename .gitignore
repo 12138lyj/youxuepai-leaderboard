@@ -15,7 +15,12 @@ src/*
 !src/cloud-config.js
 !src/cloud.js
 !src/rank-rules.js
+!src/rankup-sound.js
 !src/state.js
+
+!tests/
+tests/*
+!tests/rankup-sound.test.cjs
 
 !vendor/
 vendor/*
