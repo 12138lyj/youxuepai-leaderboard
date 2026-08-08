@@ -35,16 +35,28 @@ function makeCloudState(points = 0) {
   };
 }
 
-async function openCloudPage({ authenticated = false } = {}) {
+async function openCloudPage({
+  authenticated = false,
+  cachedPayload = null,
+  failInitialLoad = false,
+} = {}) {
   const browser = await chromium.launch({
     headless: true,
     executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(3000);
-  await page.addInitScript(({ isAuthenticated, initialPayload }) => {
+  await page.addInitScript(({
+    isAuthenticated,
+    initialPayload,
+    cachedState,
+    shouldFailInitialLoad,
+  }) => {
     let signedIn = isAuthenticated;
     let nextLoginError = null;
+    let failNextLoad = shouldFailInitialLoad;
+    let failNextSave = false;
+    let loadCalls = 0;
     let authCallback = null;
     let remoteCallback = null;
     const record = {
@@ -53,6 +65,10 @@ async function openCloudPage({ authenticated = false } = {}) {
       updated_at: '2026-08-08T00:00:00.000Z',
     };
     const savedPayloads = [];
+
+    if (cachedState) {
+      localStorage.setItem('youxuepai-leaderboard-state-v2', JSON.stringify(cachedState));
+    }
 
     globalThis.LeaderboardCloudConfig = Object.freeze({
       url: 'https://test.supabase.co',
@@ -65,15 +81,28 @@ async function openCloudPage({ authenticated = false } = {}) {
         return {
           select() { return this; },
           eq() { return this; },
-          async single() { return { data: record, error: null }; },
+          async single() {
+            loadCalls += 1;
+            if (failNextLoad) {
+              failNextLoad = false;
+              return { data: null, error: new Error('network unavailable') };
+            }
+            return { data: record, error: null };
+          },
         };
       },
       rpc(name, params) {
         savedPayloads.push(params.p_payload);
-        record.payload = params.p_payload;
-        record.revision += 1;
         return {
-          async single() { return { data: record, error: null }; },
+          async single() {
+            if (failNextSave) {
+              failNextSave = false;
+              return { data: null, error: new Error('save unavailable') };
+            }
+            record.payload = params.p_payload;
+            record.revision += 1;
+            return { data: record, error: null };
+          },
         };
       },
       auth: {
@@ -114,18 +143,37 @@ async function openCloudPage({ authenticated = false } = {}) {
     };
     globalThis.__fakeCloudControl = {
       rejectNextLogin(message) { nextLoginError = message; },
+      failNextLoad() { failNextLoad = true; },
+      failNextSave() { failNextSave = true; },
+      setRecord(payload, revision) {
+        record.payload = payload;
+        record.revision = revision;
+      },
+      emitAuth(event) {
+        if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') signedIn = false;
+        if (event === 'SIGNED_IN') signedIn = true;
+        authCallback?.(event, signedIn ? { user: { id: 'editor' } } : null);
+      },
       emitRemote(payload, revision) {
         record.payload = payload;
         record.revision = revision;
         remoteCallback?.({ new: { ...record } });
       },
+      getLoadCalls() { return loadCalls; },
       getSavedPayloads() { return savedPayloads; },
     };
-  }, { isAuthenticated: authenticated, initialPayload: makeCloudState() });
+  }, {
+    isAuthenticated: authenticated,
+    initialPayload: makeCloudState(),
+    cachedState: cachedPayload,
+    shouldFailInitialLoad: failInitialLoad,
+  });
 
   try {
     await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
-    await page.waitForSelector('#cloud-status.synced');
+    await page.waitForSelector(failInitialLoad
+      ? '#cloud-status.failed, #cloud-status.offline'
+      : '#cloud-status.synced');
   } catch (error) {
     await browser.close();
     throw error;
@@ -141,6 +189,14 @@ async function openCloudPage({ authenticated = false } = {}) {
       emitRemote: (payload, revision) => page.evaluate(({ value, nextRevision }) => {
         globalThis.__fakeCloudControl.emitRemote(value, nextRevision);
       }, { value: payload, nextRevision: revision }),
+      failNextSave: () => page.evaluate(() => globalThis.__fakeCloudControl.failNextSave()),
+      setRecord: (payload, revision) => page.evaluate(({ value, nextRevision }) => {
+        globalThis.__fakeCloudControl.setRecord(value, nextRevision);
+      }, { value: payload, nextRevision: revision }),
+      emitAuth: (event) => page.evaluate((value) => {
+        globalThis.__fakeCloudControl.emitAuth(value);
+      }, event),
+      getLoadCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getLoadCalls()),
     },
   };
 }
@@ -178,6 +234,86 @@ test('a cloud update replaces display state without replaying promotion animatio
     ));
     assert.equal(await page.locator('[data-rank-row="s1"] .rank-points').textContent(), '600 分');
     assert.equal(await page.locator('#rankup-overlay.is-active').count(), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('cached roster remains visible when the initial cloud load fails', async () => {
+  const { browser, page } = await openCloudPage({
+    cachedPayload: makeCloudState(300),
+    failInitialLoad: true,
+  });
+
+  try {
+    assert.equal(await page.locator('[data-rank-row="s1"] .rank-points').textContent(), '300 分');
+    assert.match(await page.locator('#cloud-status').textContent(), /离线|同步失败/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('reconnect loads the latest cloud row before updating the display', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage();
+
+  try {
+    await fakeCloud.setRecord(makeCloudState(600), 2);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await page.waitForSelector('#cloud-status.offline');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(() => globalThis.__fakeCloudControl.getLoadCalls() >= 2);
+    await page.waitForFunction(() => (
+      document.querySelector('[data-rank-row="s1"] .rank-points')?.textContent.trim() === '600 分'
+    ));
+    assert.equal(await fakeCloud.getLoadCalls(), 2);
+    assert.match(await page.locator('#cloud-status').textContent(), /已同步/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('failed save remains pending and retries after reconnect', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true });
+
+  try {
+    await page.click('#edit-button');
+    await fakeCloud.failNextSave();
+    const points = page.locator('input[data-student-id="s1"][data-field="totalPoints"]');
+    await points.fill('300');
+    await points.dispatchEvent('change');
+    await page.waitForSelector('#cloud-status.failed');
+    assert.notEqual(
+      await page.evaluate(() => localStorage.getItem('youxuepai-leaderboard-pending-v1')),
+      null,
+    );
+
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForSelector('#cloud-status.synced');
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem('youxuepai-leaderboard-pending-v1')),
+      null,
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
+test('expired authentication closes editing and preserves unsynced data', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true });
+
+  try {
+    await page.click('#edit-button');
+    const points = page.locator('input[data-student-id="s1"][data-field="totalPoints"]');
+    await points.fill('300');
+    await points.dispatchEvent('change');
+    await fakeCloud.emitAuth('TOKEN_REFRESH_FAILED');
+
+    assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'true');
+    assert.equal(await page.locator('#admin-logout').isVisible(), false);
+    assert.notEqual(
+      await page.evaluate(() => localStorage.getItem('youxuepai-leaderboard-pending-v1')),
+      null,
+    );
   } finally {
     await browser.close();
   }

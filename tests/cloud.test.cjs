@@ -177,6 +177,23 @@ test('forwards auth changes and releases subscriptions on destroy', async () => 
   assert.equal(fake.closedSubscriptions, 2);
 });
 
+test('ignores realtime records that are not newer than the current revision', () => {
+  const fake = createFakeSupabase();
+  const remoteRows = [];
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (value) => value,
+    onRemote: (row) => remoteRows.push(row),
+  });
+
+  cloud.subscribe();
+  fake.emitRemote({ payload: { value: 2 }, revision: 2 });
+  fake.emitRemote({ payload: { value: 1 }, revision: 1 });
+  fake.emitRemote({ payload: { value: 22 }, revision: 2 });
+
+  assert.deepEqual(remoteRows, [{ payload: { value: 2 }, revision: 2 }]);
+});
+
 test('runtime cloud configuration contains only browser-safe public fields', () => {
   assert.equal(fs.existsSync(configPath), true, 'src/cloud-config.js must exist');
   const source = fs.readFileSync(configPath, 'utf8');

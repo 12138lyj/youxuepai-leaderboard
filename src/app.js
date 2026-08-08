@@ -52,6 +52,7 @@
   let cloudSync = null;
   let cloudRevision = 0;
   let isAdmin = !canUseRemoteCloud;
+  let isRecoveringCloud = false;
 
   const elements = {
     lessonSubtitle: document.querySelector('#lesson-subtitle'),
@@ -234,6 +235,29 @@
       setCloudStatus(navigator.onLine ? 'failed' : 'offline');
       updateAdminUi();
     }
+  }
+
+  async function recoverCloud() {
+    if (!cloudSync || !navigator.onLine || isRecoveringCloud) return;
+    isRecoveringCloud = true;
+    setCloudStatus('connecting');
+    try {
+      if (isAdmin && cloudSync.getPendingPayload()) await cloudSync.flush();
+      const row = await cloudSync.load();
+      applyRemoteState(row);
+    } catch {
+      setCloudStatus(navigator.onLine ? 'failed' : 'offline');
+    } finally {
+      isRecoveringCloud = false;
+    }
+  }
+
+  function handleOffline() {
+    if (cloudSync) setCloudStatus('offline');
+  }
+
+  function handleOnline() {
+    void recoverCloud();
   }
 
   async function submitAdminLogin(event) {
@@ -1083,6 +1107,9 @@
     } else if (elements.rankupOverlay.classList.contains('is-active')) closeRankUpgrade();
     else if (elements.drawer.classList.contains('is-open')) closeDrawer();
   });
+
+  window.addEventListener('offline', handleOffline);
+  window.addEventListener('online', handleOnline);
 
   renderDisplay();
   setView(location.hash === '#ranks' ? 'ranks' : 'scores');
