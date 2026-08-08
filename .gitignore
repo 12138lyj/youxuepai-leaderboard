@@ -20,6 +20,7 @@ src/*
 
 !tests/
 tests/*
+!tests/rank-rules.test.cjs
 !tests/rankup-sound.test.cjs
 
 !vendor/
