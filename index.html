@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>学能训练班 · 积分排行榜</title>
+  <link rel="stylesheet" href="styles.css?v=20260808-rankup-v3">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="#scores" aria-label="优学湃素养中心首页">
+      <img src="assets/youxuepai-logo.png" alt="优学湃 Logo">
+      <span class="brand-copy">
+        <strong>优学湃素养中心</strong>
+        <small>每一次认真，都看得见</small>
+      </span>
+    </a>
+
+    <div class="class-switcher">
+      <button id="class-switcher-button" class="class-switcher-button" type="button" aria-expanded="false" aria-controls="class-switcher-menu">
+        <i data-lucide="users-round" aria-hidden="true"></i>
+        <span id="current-class-name"></span>
+        <i class="class-switcher-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
+      </button>
+      <div id="class-switcher-menu" class="class-switcher-menu" hidden>
+        <div class="class-menu-heading">选择班级</div>
+        <div id="class-list" class="class-list"></div>
+        <form id="add-class-form" class="add-class-form">
+          <label class="visually-hidden" for="new-class-name">新班级名称</label>
+          <input id="new-class-name" type="text" maxlength="30" placeholder="新班级名称" autocomplete="off">
+          <button class="class-row-action class-add-button" type="submit" aria-label="新增班级" title="新增班级">
+            <i data-lucide="plus" aria-hidden="true"></i>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <nav class="view-switcher" aria-label="排行榜视图">
+      <button class="view-tab is-active" type="button" data-view="scores" aria-pressed="true">
+        <i data-lucide="layout-dashboard" aria-hidden="true"></i>
+        <span>课堂评分</span>
+      </button>
+      <button class="view-tab" type="button" data-view="ranks" aria-pressed="false">
+        <i data-lucide="medal" aria-hidden="true"></i>
+        <span>段位排行</span>
+      </button>
+    </nav>
+
+    <button id="edit-button" class="primary-action" type="button">
+      <i data-lucide="settings-2" aria-hidden="true"></i>
+      <span>编辑数据</span>
+    </button>
+  </header>
+
+  <main>
+    <section id="scores-view" class="view-panel is-active" aria-labelledby="scores-title">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">四项好习惯 · 每节课即时更新</p>
+          <h1 id="scores-title">本节课积分排行榜</h1>
+          <p id="lesson-subtitle" class="subtitle"></p>
+        </div>
+        <div id="summary-strip" class="summary-strip" aria-label="本节课概览"></div>
+      </div>
+
+      <section id="class-pulse" class="class-pulse" aria-label="班级成长动态">
+        <div class="pulse-item pulse-goal">
+          <span class="pulse-icon yellow"><i data-lucide="flag" aria-hidden="true"></i></span>
+          <div class="pulse-copy">
+            <div class="pulse-label">全班共同目标</div>
+            <div id="collective-goal-copy" class="pulse-value"></div>
+            <div id="collective-progress" class="collective-progress" role="progressbar" aria-label="全班共同目标进度" aria-valuemin="0" aria-valuemax="100">
+              <span id="collective-progress-fill"></span>
+            </div>
+          </div>
+        </div>
+        <div id="progress-star" class="pulse-item">
+          <span class="pulse-icon green"><i data-lucide="trending-up" aria-hidden="true"></i></span>
+          <div class="pulse-copy"></div>
+        </div>
+        <div id="latest-honor" class="pulse-item">
+          <span class="pulse-icon purple"><i data-lucide="sparkles" aria-hidden="true"></i></span>
+          <div class="pulse-copy"></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="winners-title">
+        <h2 id="winners-title" class="section-title">
+          <i data-lucide="sparkles" aria-hidden="true"></i>
+          今日领跑者
+        </h2>
+        <div id="winners-grid" class="winners-grid"></div>
+      </section>
+
+      <section aria-labelledby="boards-title">
+        <div class="section-heading">
+          <h2 id="boards-title" class="section-title">
+            <i data-lucide="list-ordered" aria-hidden="true"></i>
+            四项课堂排行
+          </h2>
+          <p>同分时按姓名排序 · 段位每 300 分升一档</p>
+        </div>
+        <div id="boards-grid" class="boards-grid"></div>
+      </section>
+    </section>
+
+    <section id="ranks-view" class="view-panel" aria-labelledby="ranks-title" hidden>
+      <div class="page-heading rank-page-heading">
+        <div>
+          <p class="eyebrow">累计每一分 · 向下一段位出发</p>
+          <h1 id="ranks-title">段位排行</h1>
+          <p class="subtitle">累计积分实时计算段位 · 每 300 分升一档</p>
+        </div>
+        <div class="rank-legend" aria-label="段位顺序">
+          <span>青铜</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>白银</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>黄金</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>铂金</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>钻石</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>星耀</span><i data-lucide="chevron-right" aria-hidden="true"></i>
+          <span>最强王者</span>
+        </div>
+      </div>
+      <div class="rank-table-shell">
+        <div class="rank-table-header" aria-hidden="true">
+          <span>名次 / 学员</span>
+          <span>累计积分</span>
+          <span>当前段位</span>
+          <span>升级还需</span>
+          <span>本段进度</span>
+        </div>
+        <div id="rank-list" class="rank-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
+  <aside id="edit-drawer" class="edit-drawer" aria-labelledby="drawer-title" aria-hidden="true">
+    <div class="drawer-header">
+      <div>
+        <p class="eyebrow">仅保存在本浏览器</p>
+        <h2 id="drawer-title">编辑课堂数据</h2>
+      </div>
+      <button id="drawer-close" class="icon-button" type="button" aria-label="关闭编辑面板" title="关闭">
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <div class="class-settings-grid">
+        <label class="lesson-field">
+          <span>本节课课次</span>
+          <input id="lesson-input" type="number" min="1" step="1" inputmode="numeric">
+        </label>
+        <label class="lesson-field">
+          <span>全班共同目标</span>
+          <input id="collective-goal-input" type="number" min="1" step="100" inputmode="numeric">
+        </label>
+      </div>
+
+      <div class="editor-heading">
+        <div>
+          <h3>学员与分数</h3>
+          <p>修改后离开输入框即保存</p>
+        </div>
+        <button id="add-student" class="secondary-action" type="button">
+          <i data-lucide="user-plus" aria-hidden="true"></i>
+          新增学员
+        </button>
+      </div>
+
+      <div id="student-editor-list" class="student-editor-list"></div>
+    </div>
+
+    <div class="drawer-footer">
+      <button id="restore-data" class="danger-action" type="button">
+        <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+        恢复示例数据
+      </button>
+      <button id="drawer-done" class="primary-action" type="button">完成编辑</button>
+    </div>
+  </aside>
+
+  <svg id="rank-emblem-sprite" class="rank-emblem-sprite" aria-hidden="true">
+    <defs>
+      <linearGradient id="bronzeMetal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffe0ba"/><stop offset=".24" stop-color="#d98a50"/><stop offset=".58" stop-color="#824321"/><stop offset=".82" stop-color="#d58449"/><stop offset="1" stop-color="#45210f"/></linearGradient>
+      <linearGradient id="silverMetal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset=".25" stop-color="#cce3ef"/><stop offset=".52" stop-color="#718ba0"/><stop offset=".76" stop-color="#e4f2f8"/><stop offset="1" stop-color="#43576a"/></linearGradient>
+      <linearGradient id="goldMetal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff6ae"/><stop offset=".27" stop-color="#f4cb4d"/><stop offset=".56" stop-color="#9b5e04"/><stop offset=".78" stop-color="#ffd85b"/><stop offset="1" stop-color="#573000"/></linearGradient>
+      <linearGradient id="tealMetal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#edfffb"/><stop offset=".28" stop-color="#7de0cf"/><stop offset=".58" stop-color="#287b71"/><stop offset=".8" stop-color="#8be7d6"/><stop offset="1" stop-color="#164840"/></linearGradient>
+      <linearGradient id="blueGem" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset=".2" stop-color="#b9f1ff"/><stop offset=".48" stop-color="#4db6f3"/><stop offset=".78" stop-color="#285fc2"/><stop offset="1" stop-color="#182d75"/></linearGradient>
+      <linearGradient id="purpleGem" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff2ff"/><stop offset=".25" stop-color="#d9a8ff"/><stop offset=".55" stop-color="#8e4bd0"/><stop offset=".82" stop-color="#4d248d"/><stop offset="1" stop-color="#241044"/></linearGradient>
+      <linearGradient id="whiteGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fffef1"/><stop offset=".3" stop-color="#f8e8a5"/><stop offset=".52" stop-color="#b98620"/><stop offset=".72" stop-color="#fff0ae"/><stop offset="1" stop-color="#7d4d05"/></linearGradient>
+      <radialGradient id="cyanCore"><stop stop-color="#fff"/><stop offset=".32" stop-color="#84efff"/><stop offset=".72" stop-color="#2699d1"/><stop offset="1" stop-color="#164f85"/></radialGradient>
+      <filter id="bevel" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blur"/><feSpecularLighting in="blur" surfaceScale="5" specularConstant=".85" specularExponent="22" lighting-color="#fff" result="spec"><fePointLight x="55" y="28" z="120"/></feSpecularLighting><feComposite in="spec" in2="SourceAlpha" operator="in" result="spec2"/><feComposite in="SourceGraphic" in2="spec2" operator="arithmetic" k1="1" k2="1" k3="1" k4="0"/></filter>
+      <symbol id="rank-emblem-bronze" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><path d="M72 91 22 69l25 35-30 10 52 31 30-28Z" fill="url(#bronzeMetal)" stroke="#4a2311" stroke-width="5"/><path d="m168 91 50-22-25 35 30 10-52 31-30-28Z" fill="url(#bronzeMetal)" stroke="#4a2311" stroke-width="5"/><path d="m120 23 67 39-13 112-54 49-54-49L53 62Z" fill="#321b12" stroke="url(#bronzeMetal)" stroke-width="10"/><path d="m120 42 48 28-10 91-38 38-38-38-10-91Z" fill="url(#bronzeMetal)"/><path d="m89 97 31 24 31-24-8 28-23 19-23-19Z" fill="#ffe0b8" opacity=".8"/><path d="m91 140 29 20 29-20-9 30-20 17-20-17Z" fill="#6e361e" stroke="#efae78" stroke-width="3"/><circle cx="120" cy="188" r="8" fill="#ffd5a0" stroke="#542711" stroke-width="3"/></g>
+      </symbol>
+      <symbol id="rank-emblem-silver" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><path d="M101 91 29 51l29 46-42 1 73 49 35-33Z" fill="url(#silverMetal)" stroke="#40576b" stroke-width="5"/><path d="m139 91 72-40-29 46 42 1-73 49-35-33Z" fill="url(#silverMetal)" stroke="#40576b" stroke-width="5"/><path d="m120 27 61 46-17 98-44 50-44-50-17-98Z" fill="#223a52" stroke="url(#silverMetal)" stroke-width="9"/><path d="m120 48 42 33-13 78-29 36-29-36-13-78Z" fill="url(#silverMetal)"/><path d="M132 79a43 43 0 1 0 21 69 50 50 0 1 1-21-69Z" fill="#f4fbff" stroke="#627e93" stroke-width="4"/><path d="m89 177 31 19 31-19-10 26-21 18-21-18Z" fill="#9fb7c9" stroke="#eefaff" stroke-width="3"/></g>
+      </symbol>
+      <symbol id="rank-emblem-gold" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><path d="m120 14 14 35 31-26-5 42 42-12-28 34 42 8-39 22 31 28-45 1 16 42-39-22-20 39-20-39-39 22 16-42-45-1 31-28-39-22 42-8-28-34 42 12-5-42 31 26Z" fill="url(#goldMetal)" stroke="#714100" stroke-width="5"/><path d="m120 42 58 41-14 91-44 48-44-48-14-91Z" fill="#674009" stroke="#ffe57a" stroke-width="7"/><path d="m120 63 39 28-10 71-29 34-29-34-10-71Z" fill="url(#goldMetal)"/><circle cx="120" cy="127" r="32" fill="#ffe985" stroke="#8a5200" stroke-width="6"/><path d="m120 97 10 20 22 3-16 15 4 22-20-10-20 10 4-22-16-15 22-3Z" fill="#fff8c9"/></g>
+      </symbol>
+      <symbol id="rank-emblem-platinum" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><path d="m96 89-70-23 35 40-45 12 70 36 39-38Z" fill="url(#tealMetal)" stroke="#1d5c56" stroke-width="5"/><path d="m144 89 70-23-35 40 45 12-70 36-39-38Z" fill="url(#tealMetal)" stroke="#1d5c56" stroke-width="5"/><path d="m120 20 63 54-17 99-46 54-46-54-17-99Z" fill="#153f3c" stroke="url(#tealMetal)" stroke-width="10"/><path d="m120 41 44 41-12 79-32 39-32-39-12-79Z" fill="url(#tealMetal)"/><path d="m120 71 29 34-10 55-19 25-19-25-10-55Z" fill="#e9fff9" stroke="#388f83" stroke-width="5"/><path d="m120 94 18 23-18 34-18-34Z" fill="url(#cyanCore)"/><path d="M91 177h58" stroke="#d9fff8" stroke-width="5" stroke-linecap="round"/></g>
+      </symbol>
+      <symbol id="rank-emblem-diamond" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><path d="m97 84-74-36 35 48-44 5 73 50 39-40Z" fill="url(#silverMetal)" stroke="#416d9a" stroke-width="5"/><path d="m143 84 74-36-35 48 44 5-73 50-39-40Z" fill="url(#silverMetal)" stroke="#416d9a" stroke-width="5"/><path d="m120 17 70 66-21 96-49 49-49-49-21-96Z" fill="#132b5d" stroke="url(#silverMetal)" stroke-width="9"/><path d="m120 35 51 52-17 80-34 38-34-38-17-80Z" fill="url(#blueGem)"/><path d="m120 60 34 51-34 70-34-70Z" fill="#dff8ff" stroke="#347bc8" stroke-width="5"/><path d="m120 60 0 121M86 111h68" stroke="#7dcaff" stroke-width="3" opacity=".85"/><circle cx="120" cy="111" r="10" fill="#fff"/></g>
+      </symbol>
+      <symbol id="rank-emblem-star" viewBox="0 0 240 240">
+        <g filter="url(#bevel)"><ellipse cx="120" cy="124" rx="100" ry="45" fill="none" stroke="#dab4ff" stroke-width="7" transform="rotate(-12 120 124)"/><ellipse cx="120" cy="124" rx="79" ry="103" fill="none" stroke="#8b51c9" stroke-width="4" stroke-dasharray="8 10" transform="rotate(22 120 124)"/><path d="m120 15 22 57 61-11-41 48 42 45-61-6-23 58-23-58-61 6 42-45-41-48 61 11Z" fill="url(#purpleGem)" stroke="#f0d5ff" stroke-width="7"/><path d="m120 52 16 43 45 2-35 29 12 44-38-25-38 25 12-44-35-29 45-2Z" fill="#eacfff" stroke="#7441af" stroke-width="5"/><path d="m120 83 16 25-16 33-16-33Z" fill="url(#blueGem)" stroke="#fff" stroke-width="3"/><circle cx="201" cy="88" r="9" fill="#fff0a0" stroke="#7646aa" stroke-width="4"/></g>
+      </symbol>
+      <symbol id="rank-emblem-king" viewBox="0 0 300 300">
+        <g filter="url(#bevel)"><path d="M112 111 29 57l34 57-52 2 79 60 50-43Z" fill="url(#whiteGold)" stroke="#9a660d" stroke-width="6"/><path d="m188 111 83-54-34 57 52 2-79 60-50-43Z" fill="url(#whiteGold)" stroke="#9a660d" stroke-width="6"/><path d="M102 143 22 176l61 12-36 47 88-31 26-47Z" fill="url(#goldMetal)" stroke="#875300" stroke-width="5"/><path d="m198 143 80 33-61 12 36 47-88-31-26-47Z" fill="url(#goldMetal)" stroke="#875300" stroke-width="5"/><path d="m150 25 84 56-19 129-65 70-65-70L66 81Z" fill="#36240e" stroke="url(#whiteGold)" stroke-width="13"/><path d="m150 48 62 44-15 106-47 54-47-54-15-106Z" fill="url(#goldMetal)"/><path d="m101 95 20-48 29 37 29-37 20 48-13 59h-72Z" fill="#fff2a0" stroke="#784500" stroke-width="6"/><path d="m150 114 31 36-31 49-31-49Z" fill="url(#blueGem)" stroke="#fff6bd" stroke-width="7"/><path d="m150 126 17 23-17 27-17-27Z" fill="url(#cyanCore)"/><path d="M112 213h76M124 232h52" stroke="#fff0a0" stroke-width="7" stroke-linecap="round"/><path d="m150 264 15 14-15 18-15-18Z" fill="url(#cyanCore)" stroke="#ffe68a" stroke-width="5"/></g>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div id="rankup-overlay" class="rankup-overlay" role="dialog" aria-modal="true" aria-labelledby="rankup-heading" aria-hidden="true" tabindex="-1">
+    <div class="rankup-animation-stage" aria-hidden="true">
+      <div class="rankup-sky">
+        <div class="rankup-cloud cloud-back"></div>
+        <div class="rankup-cloud cloud-front"></div>
+      </div>
+      <div class="rankup-vortex"><span></span><span></span><span></span></div>
+      <div class="rankup-lightning"><i></i><i></i><i></i><i></i></div>
+      <div class="rankup-mega-burst"></div>
+      <div class="rankup-shockwave inner"></div>
+      <div class="rankup-shockwave outer"></div>
+      <div class="rankup-banner"><span class="banner-line left"></span><span class="banner-line right"></span><strong>段位晋升</strong><small>NEW RANK</small></div>
+      <div class="rankup-emblem-glow rankup-old-glow"></div>
+      <div id="rankup-old-emblem" class="rankup-old-emblem">
+        <svg class="rank-emblem-art" viewBox="0 0 300 300" aria-hidden="true">
+          <use id="rankup-old-emblem-use" width="100%" height="100%" href="#rank-emblem-bronze"></use>
+        </svg>
+      </div>
+      <div class="rankup-rune-ring"></div>
+      <div class="rankup-emblem-glow rankup-new-glow"></div>
+      <div id="rankup-new-emblem" class="rankup-new-emblem">
+        <svg class="rank-emblem-art" viewBox="0 0 300 300" aria-hidden="true">
+          <use id="rankup-new-emblem-use" width="100%" height="100%" href="#rank-emblem-silver"></use>
+        </svg>
+      </div>
+      <div class="rankup-shards">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="rankup-beam-field"><i></i><i></i><i></i><i></i></div>
+      <div class="rankup-particles"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <button id="rankup-skip" class="rankup-skip" type="button" aria-label="跳过晋级动画" title="跳过动画">
+      <i data-lucide="skip-forward" aria-hidden="true"></i>
+    </button>
+    <div class="rankup-content">
+      <p class="rankup-kicker">段位晋升</p>
+      <h2 id="rankup-heading"><span id="rankup-student"></span>，新段位解锁</h2>
+      <div class="rankup-transition">
+        <span id="rankup-old-rank"></span>
+        <i data-lucide="arrow-right" aria-hidden="true"></i>
+        <strong id="rankup-new-rank"></strong>
+      </div>
+      <p>积累没有白费，继续保持这股认真劲。</p>
+      <button id="rankup-close" class="rankup-close" type="button">
+        <i data-lucide="check" aria-hidden="true"></i>
+        收下荣誉
+      </button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/lucide.min.js?v=20260808-rankup-v3"></script>
+  <script src="src/rank-rules.js?v=20260808-rankup-v3"></script>
+  <script src="src/state.js?v=20260808-rankup-v3"></script>
+  <script src="src/app.js?v=20260808-rankup-v3"></script>
+</body>
+</html>
