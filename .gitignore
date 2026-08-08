@@ -12,9 +12,12 @@ assets/*
 !src/
 src/*
 !src/app.js
+!src/cloud-config.js
+!src/cloud.js
 !src/rank-rules.js
 !src/state.js
 
 !vendor/
 vendor/*
 !vendor/lucide.min.js
+!vendor/supabase.min.js

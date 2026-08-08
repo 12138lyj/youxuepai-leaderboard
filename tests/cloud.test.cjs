@@ -1,7 +1,14 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const Cloud = require('../src/cloud.js');
+
+const projectRoot = path.join(__dirname, '..');
+const configPath = path.join(projectRoot, 'src', 'cloud-config.js');
+const sdkPath = path.join(projectRoot, 'vendor', 'supabase.min.js');
 
 function createFakeSupabase(options = {}) {
   const record = options.record || {
@@ -168,4 +175,48 @@ test('forwards auth changes and releases subscriptions on destroy', async () => 
   assert.deepEqual(events, ['SIGNED_OUT']);
   await cloud.destroy();
   assert.equal(fake.closedSubscriptions, 2);
+});
+
+test('runtime cloud configuration contains only browser-safe public fields', () => {
+  assert.equal(fs.existsSync(configPath), true, 'src/cloud-config.js must exist');
+  const source = fs.readFileSync(configPath, 'utf8');
+  const context = { globalThis: {} };
+  vm.runInNewContext(source, context, { filename: configPath });
+  const config = context.globalThis.LeaderboardCloudConfig;
+
+  assert.deepEqual(
+    Array.from(Object.keys(config).sort()),
+    ['anonKey', 'editorEmail', 'recordId', 'url'],
+  );
+  assert.equal(Object.isFrozen(config), true);
+  assert.match(config.url, /^https:\/\/[a-z0-9]+\.supabase\.co$/);
+  assert.match(config.anonKey, /^(?:eyJ|sb_publishable_)/);
+  assert.equal(config.recordId, 'main');
+  assert.equal(typeof config.editorEmail, 'string');
+  assert.ok(config.editorEmail.includes('@'));
+});
+
+test('pinned Supabase SDK is a real browser bundle and runtime files contain no private credentials', () => {
+  assert.equal(fs.existsSync(sdkPath), true, 'vendor/supabase.min.js must exist');
+  const sdk = fs.readFileSync(sdkPath, 'utf8');
+  assert.ok(sdk.length > 100_000, 'Supabase SDK bundle is unexpectedly small');
+  assert.match(sdk.slice(0, 1_000), /supabase/i);
+  assert.match(sdk, /createClient/);
+
+  const runtimeSources = [
+    path.join(projectRoot, 'index.html'),
+    path.join(projectRoot, 'src', 'app.js'),
+    path.join(projectRoot, 'src', 'cloud.js'),
+    configPath,
+  ].map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+
+  assert.doesNotMatch(runtimeSources, /service[_ -]?role/i);
+  assert.doesNotMatch(runtimeSources, /postgres(?:ql)?:\/\//i);
+  assert.doesNotMatch(runtimeSources, /databasePassword|refreshToken|accessToken/i);
+  assert.doesNotMatch(runtimeSources, /password\s*:\s*['"][^'"]+['"]/i);
+
+  const ignoreFile = fs.readFileSync(path.join(projectRoot, '.gitignore'), 'utf8');
+  assert.match(ignoreFile, /^!src\/cloud-config\.js$/m);
+  assert.match(ignoreFile, /^!src\/cloud\.js$/m);
+  assert.match(ignoreFile, /^!vendor\/supabase\.min\.js$/m);
 });
