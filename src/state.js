@@ -8,6 +8,20 @@
   const badgeColors = new Set(['white', 'yellow', 'purple']);
   const badgeColorOrder = { white: 0, yellow: 1, purple: 2 };
   const DEFAULT_COLLECTIVE_GOAL = 15000;
+  const DEFAULT_RANKUP_SOUND = Object.freeze({
+    enabled: true,
+    source: 'builtin',
+    style: 'horn',
+    url: '',
+    name: '王者号角',
+    storagePath: '',
+    clipStart: 0,
+    clipDuration: 5.2,
+  });
+  const rankupSoundSources = new Set(['builtin', 'upload', 'url']);
+  const rankupSoundStyles = new Set(['horn', 'crystal', 'star']);
+  const rankupSoundLabels = { horn: '王者号角', crystal: '水晶解锁', star: '星耀冲刺' };
+  const audioPathPattern = /\.(?:mp3|m4a|wav|ogg)$/i;
   let generatedStudentSequence = 0;
 
   function hasUsableId(value) {
@@ -26,6 +40,41 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return 0;
     return Math.max(0, Math.round(number));
+  }
+
+  function isValidAudioUrl(value) {
+    try {
+      const url = new URL(String(value || ''));
+      return url.protocol === 'https:' && audioPathPattern.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  function normalizeRankupSound(value) {
+    const input = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const source = rankupSoundSources.has(input.source) ? input.source : 'builtin';
+    const style = rankupSoundStyles.has(input.style) ? input.style : 'horn';
+    const enabled = input.enabled === false || input.enabled === 'false' ? false : true;
+    if (source !== 'builtin' && !isValidAudioUrl(input.url)) return { ...DEFAULT_RANKUP_SOUND };
+    if (source === 'builtin') {
+      return {
+        ...DEFAULT_RANKUP_SOUND,
+        enabled,
+        style,
+        name: rankupSoundLabels[style],
+      };
+    }
+    return {
+      enabled,
+      source,
+      style,
+      url: String(input.url),
+      name: String(input.name || '自定义音效').trim().slice(0, 80) || '自定义音效',
+      storagePath: source === 'upload' ? String(input.storagePath || '') : '',
+      clipStart: Math.max(0, Math.round((Number(input.clipStart) || 0) * 10) / 10),
+      clipDuration: 5.2,
+    };
   }
 
   function normalizeStudent(student) {
@@ -283,7 +332,11 @@
       name: '暑假学习技能训练',
       ...createDefaultState(),
     });
-    return { activeClassId: classroom.id, classes: [classroom] };
+    return {
+      activeClassId: classroom.id,
+      classes: [classroom],
+      rankupSound: normalizeRankupSound(),
+    };
   }
 
   function normalizeAppState(value) {
@@ -311,7 +364,11 @@
     const activeClassId = classes.some((classroom) => classroom.id === requestedActiveId)
       ? requestedActiveId
       : classes[0].id;
-    return { activeClassId, classes };
+    return {
+      activeClassId,
+      classes,
+      rankupSound: normalizeRankupSound(value.rankupSound),
+    };
   }
 
   function getActiveClassroom(appState) {
@@ -512,7 +569,9 @@
     scoreFields,
     badgeFields,
     DEFAULT_COLLECTIVE_GOAL,
+    DEFAULT_RANKUP_SOUND,
     normalizeScore,
+    normalizeRankupSound,
     normalizeStudent,
     normalizeState,
     normalizeLessonRecords,
