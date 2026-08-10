@@ -13,6 +13,7 @@
     onStatus = () => {},
     onRemote = () => {},
     debounceMs = 400,
+    now = () => Date.now(),
   }) {
     let revision = 0;
     let pendingPayload = null;
@@ -50,6 +51,37 @@
     async function signOut() {
       const { error } = await client.auth.signOut();
       if (error) throw error;
+    }
+
+    async function uploadRankupAudio(file) {
+      const fileName = String(file?.name || 'rankup-audio.mp3');
+      const extension = fileName.includes('.')
+        ? fileName.split('.').pop().toLowerCase()
+        : 'mp3';
+      const baseName = fileName.replace(/\.[^.]+$/, '')
+        .normalize('NFKD')
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-|-$/g, '')
+        .toLowerCase() || 'rankup-audio';
+      const path = `main/${now()}-${baseName}.${extension}`;
+      const bucket = client.storage.from('rankup-audio');
+      const { error } = await bucket.upload(path, file, {
+        cacheControl: '3600',
+        contentType: file?.type,
+        upsert: false,
+      });
+      if (error) throw error;
+      const { data } = bucket.getPublicUrl(path);
+      if (!data?.publicUrl) throw new Error('无法获取音频公开网址');
+      return { path, url: data.publicUrl };
+    }
+
+    async function removeRankupAudio(path) {
+      const normalizedPath = String(path || '');
+      if (!/^main\/[a-zA-Z0-9._-]+$/.test(normalizedPath)) return false;
+      const { error } = await client.storage.from('rankup-audio').remove([normalizedPath]);
+      if (error) throw error;
+      return true;
     }
 
     async function flush() {
@@ -119,6 +151,8 @@
       signIn,
       isAuthenticated,
       signOut,
+      uploadRankupAudio,
+      removeRankupAudio,
       flush,
       queueSave,
       subscribe,

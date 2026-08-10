@@ -18,6 +18,8 @@ function createFakeSupabase(options = {}) {
   };
   const signInCalls = [];
   const savedPayloads = [];
+  const uploadCalls = [];
+  const removeCalls = [];
   let failNextSave = Boolean(options.failFirstSave);
   let authCallback = null;
   let remoteCallback = null;
@@ -69,6 +71,28 @@ function createFakeSupabase(options = {}) {
         };
       },
     },
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, 'rankup-audio');
+        return {
+          async upload(path, file, options) {
+            uploadCalls.push({ path, file, options });
+            return { data: { path }, error: null };
+          },
+          getPublicUrl(path) {
+            return {
+              data: {
+                publicUrl: `https://test.supabase.co/storage/v1/object/public/${bucket}/${path}`,
+              },
+            };
+          },
+          async remove(paths) {
+            removeCalls.push(paths);
+            return { data: paths, error: null };
+          },
+        };
+      },
+    },
     channel() {
       return {
         on(event, filter, callback) {
@@ -89,6 +113,8 @@ function createFakeSupabase(options = {}) {
     client,
     signInCalls,
     savedPayloads,
+    uploadCalls,
+    removeCalls,
     emitAuth(event) { authCallback?.(event); },
     emitRemote(nextRecord) { remoteCallback?.({ new: nextRecord }); },
     get closedSubscriptions() { return closedSubscriptions; },
@@ -192,6 +218,36 @@ test('ignores realtime records that are not newer than the current revision', ()
   fake.emitRemote({ payload: { value: 22 }, revision: 2 });
 
   assert.deepEqual(remoteRows, [{ payload: { value: 2 }, revision: 2 }]);
+});
+
+test('uploads rank-up audio to a unique public Storage path', async () => {
+  const fake = createFakeSupabase();
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (value) => value,
+    now: () => 1234,
+  });
+  const file = { name: 'Classroom Sprint.mp3', type: 'audio/mpeg' };
+
+  const uploaded = await cloud.uploadRankupAudio(file);
+
+  assert.equal(uploaded.path, 'main/1234-classroom-sprint.mp3');
+  assert.match(uploaded.url, /rankup-audio\/main\/1234-classroom-sprint\.mp3$/);
+  assert.equal(fake.uploadCalls[0].file, file);
+  assert.deepEqual(fake.uploadCalls[0].options, {
+    cacheControl: '3600',
+    contentType: 'audio/mpeg',
+    upsert: false,
+  });
+});
+
+test('removes only a supplied rank-up audio object path', async () => {
+  const fake = createFakeSupabase();
+  const cloud = Cloud.createCloudSync({ client: fake.client, normalize: (value) => value });
+
+  assert.equal(await cloud.removeRankupAudio('main/old.mp3'), true);
+  assert.equal(await cloud.removeRankupAudio('../other.mp3'), false);
+  assert.deepEqual(fake.removeCalls, [['main/old.mp3']]);
 });
 
 test('runtime cloud configuration contains only browser-safe public fields', () => {
