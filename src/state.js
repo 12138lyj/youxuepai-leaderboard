@@ -15,6 +15,7 @@
     url: '',
     name: '王者号角',
     storagePath: '',
+    duration: 0,
     clipStart: 0,
     clipDuration: 5.2,
   });
@@ -72,6 +73,7 @@
       url: String(input.url),
       name: String(input.name || '自定义音效').trim().slice(0, 80) || '自定义音效',
       storagePath: source === 'upload' ? String(input.storagePath || '') : '',
+      duration: Math.max(0, Math.round((Number(input.duration) || 0) * 10) / 10),
       clipStart: Math.max(0, Math.round((Number(input.clipStart) || 0) * 10) / 10),
       clipDuration: 5.2,
     };

@@ -39,6 +39,7 @@ async function openCloudPage({
   authenticated = false,
   cachedPayload = null,
   failInitialLoad = false,
+  cloudPayload = makeCloudState(),
 } = {}) {
   const browser = await chromium.launch({
     headless: true,
@@ -65,6 +66,8 @@ async function openCloudPage({
       updated_at: '2026-08-08T00:00:00.000Z',
     };
     const savedPayloads = [];
+    const uploadCalls = [];
+    const removeCalls = [];
 
     if (cachedState) {
       localStorage.setItem('youxuepai-leaderboard-state-v2', JSON.stringify(cachedState));
@@ -130,6 +133,27 @@ async function openCloudPage({
           return { data: { subscription: { unsubscribe() {} } } };
         },
       },
+      storage: {
+        from(bucket) {
+          return {
+            async upload(path, file, options) {
+              uploadCalls.push({ bucket, path, name: file.name, size: file.size, options });
+              return { data: { path }, error: null };
+            },
+            getPublicUrl(path) {
+              return {
+                data: {
+                  publicUrl: `https://test.supabase.co/storage/v1/object/public/${bucket}/${path}`,
+                },
+              };
+            },
+            async remove(paths) {
+              removeCalls.push({ bucket, paths });
+              return { data: paths, error: null };
+            },
+          };
+        },
+      },
       channel() {
         return {
           on(event, filter, callback) {
@@ -161,10 +185,12 @@ async function openCloudPage({
       },
       getLoadCalls() { return loadCalls; },
       getSavedPayloads() { return savedPayloads; },
+      getUploadCalls() { return uploadCalls; },
+      getRemoveCalls() { return removeCalls; },
     };
   }, {
     isAuthenticated: authenticated,
-    initialPayload: makeCloudState(),
+    initialPayload: cloudPayload,
     cachedState: cachedPayload,
     shouldFailInitialLoad: failInitialLoad,
   });
@@ -197,6 +223,9 @@ async function openCloudPage({
         globalThis.__fakeCloudControl.emitAuth(value);
       }, event),
       getLoadCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getLoadCalls()),
+      getSavedPayloads: () => page.evaluate(() => globalThis.__fakeCloudControl.getSavedPayloads()),
+      getUploadCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getUploadCalls()),
+      getRemoveCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getRemoveCalls()),
     },
   };
 }
@@ -416,28 +445,109 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /src\/rankup-sound\.js\?v=20260808-ranks-audio-v1/);
 });
 
-test('plays the selected rank-up sound when a student is promoted', async () => {
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  });
+test('saves a selected 5.2 second URL clip into cloud app state', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true });
 
   try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
-    await page.evaluate(() => localStorage.clear());
-    await page.reload({ waitUntil: 'load' });
     await page.evaluate(() => {
-      window.__rankupSoundCalls = [];
-      window.RankupSound.play = (style) => window.__rankupSoundCalls.push(style);
-      window.RankupSound.saveSettings({ style: 'crystal', enabled: true });
+      globalThis.RankupSound.inspectAudio = async () => ({ duration: 30 });
     });
     await page.click('#edit-button');
-    const points = page.locator('input[data-student-id="s9"][data-field="totalPoints"]');
+    await page.click('#rankup-sound-source-url');
+    await page.fill('#rankup-sound-url', 'https://example.com/class.mp3');
+    await page.click('#rankup-sound-load-url');
+    await page.locator('#rankup-clip-start').evaluate((input) => {
+      input.value = '12.4';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.locator('#rankup-clip-range').textContent(), '00:12.4 - 00:17.6');
+    await page.click('#rankup-sound-save-clip');
+    await page.waitForSelector('#cloud-status.synced');
+
+    const payload = (await fakeCloud.getSavedPayloads()).at(-1);
+    assert.equal(payload.rankupSound.source, 'url');
+    assert.equal(payload.rankupSound.url, 'https://example.com/class.mp3');
+    assert.equal(payload.rankupSound.clipStart, 12.4);
+    assert.equal(payload.rankupSound.clipDuration, 5.2);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('uploads a music file and syncs its selected clip', async () => {
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true });
+
+  try {
+    await page.evaluate(() => {
+      globalThis.RankupSound.inspectAudio = async () => ({ duration: 24 });
+    });
+    await page.click('#edit-button');
+    await page.click('#rankup-sound-source-upload');
+    await page.setInputFiles('#rankup-sound-file', {
+      name: 'class-sprint.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('test audio fixture'),
+    });
+    await page.waitForSelector('#rankup-clip-editor:not([hidden])');
+    await page.locator('#rankup-clip-start').evaluate((input) => {
+      input.value = '8.1';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#rankup-sound-save-clip');
+    await page.waitForSelector('#cloud-status.synced');
+
+    const uploads = await fakeCloud.getUploadCalls();
+    const payload = (await fakeCloud.getSavedPayloads()).at(-1);
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].bucket, 'rankup-audio');
+    assert.equal(uploads[0].name, 'class-sprint.mp3');
+    assert.equal(payload.rankupSound.source, 'upload');
+    assert.match(payload.rankupSound.url, /rankup-audio\/main\//);
+    assert.match(payload.rankupSound.storagePath, /^main\//);
+    assert.equal(payload.rankupSound.clipStart, 8.1);
+    assert.equal(payload.rankupSound.duration, 24);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('plays the synced rank-up clip and stops it when the animation is skipped', async () => {
+  const cloudPayload = makeCloudState();
+  cloudPayload.rankupSound = {
+    enabled: true,
+    source: 'url',
+    style: 'crystal',
+    url: 'https://example.com/class.mp3',
+    name: '课堂冲刺',
+    storagePath: '',
+    duration: 30,
+    clipStart: 12.4,
+    clipDuration: 5.2,
+  };
+  const { browser, page } = await openCloudPage({ authenticated: true, cloudPayload });
+
+  try {
+    await page.evaluate(() => {
+      globalThis.__rankupSoundCalls = [];
+      globalThis.__rankupSoundStops = 0;
+      globalThis.RankupSound.playSettings = (settings) => {
+        globalThis.__rankupSoundCalls.push(settings);
+        return {
+          started: true,
+          kind: 'custom',
+          stop() { globalThis.__rankupSoundStops += 1; },
+        };
+      };
+    });
+    await page.click('#edit-button');
+    const points = page.locator('input[data-student-id="s1"][data-field="totalPoints"]');
     await points.fill('300');
     await points.dispatchEvent('change');
     await page.waitForSelector('#rankup-overlay.is-active');
-    assert.deepEqual(await page.evaluate(() => window.__rankupSoundCalls), ['crystal']);
+    assert.deepEqual(await page.evaluate(() => globalThis.__rankupSoundCalls), [cloudPayload.rankupSound]);
+
+    await page.click('#rankup-skip');
+    assert.equal(await page.evaluate(() => globalThis.__rankupSoundStops), 1);
   } finally {
     await browser.close();
   }

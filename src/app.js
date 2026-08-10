@@ -54,6 +54,9 @@
   let cloudRevision = 0;
   let isAdmin = !canUseRemoteCloud;
   let isRecoveringCloud = false;
+  let soundEditorSource = null;
+  let soundDraft = null;
+  let activeSoundPlayback = null;
 
   const elements = {
     lessonSubtitle: document.querySelector('#lesson-subtitle'),
@@ -90,6 +93,22 @@
     rankupSoundStyle: document.querySelector('#rankup-sound-style'),
     rankupSoundEnabled: document.querySelector('#rankup-sound-enabled'),
     rankupSoundPreview: document.querySelector('#rankup-sound-preview'),
+    rankupSoundSourceButtons: [...document.querySelectorAll('[data-sound-source]')],
+    rankupSoundBuiltinPanel: document.querySelector('#rankup-sound-builtin-panel'),
+    rankupSoundUploadPanel: document.querySelector('#rankup-sound-upload-panel'),
+    rankupSoundUrlPanel: document.querySelector('#rankup-sound-url-panel'),
+    rankupSoundFile: document.querySelector('#rankup-sound-file'),
+    rankupSoundPickFile: document.querySelector('#rankup-sound-pick-file'),
+    rankupSoundFileName: document.querySelector('#rankup-sound-file-name'),
+    rankupSoundUrl: document.querySelector('#rankup-sound-url'),
+    rankupSoundLoadUrl: document.querySelector('#rankup-sound-load-url'),
+    rankupClipEditor: document.querySelector('#rankup-clip-editor'),
+    rankupClipSourceName: document.querySelector('#rankup-clip-source-name'),
+    rankupClipStart: document.querySelector('#rankup-clip-start'),
+    rankupClipRange: document.querySelector('#rankup-clip-range'),
+    rankupSoundSaveClip: document.querySelector('#rankup-sound-save-clip'),
+    rankupSoundReset: document.querySelector('#rankup-sound-reset'),
+    rankupSoundStatus: document.querySelector('#rankup-sound-status'),
     editorList: document.querySelector('#student-editor-list'),
     addStudent: document.querySelector('#add-student'),
     restoreData: document.querySelector('#restore-data'),
@@ -598,15 +617,73 @@
     refreshIcons();
   }
 
+  function soundStyleLabel(style) {
+    return RankupSound?.options.find((option) => option.id === style)?.label || '王者号角';
+  }
+
+  function getSoundEditorSource() {
+    return soundDraft?.source || soundEditorSource || appState.rankupSound.source;
+  }
+
+  function setSoundStatus(message, isError = false) {
+    elements.rankupSoundStatus.textContent = message;
+    elements.rankupSoundStatus.classList.toggle('is-error', isError);
+  }
+
+  function renderSoundEditor() {
+    if (!RankupSound) return;
+    const settings = appState.rankupSound;
+    const source = getSoundEditorSource();
+    for (const button of elements.rankupSoundSourceButtons) {
+      const isActive = button.dataset.soundSource === source;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+    elements.rankupSoundBuiltinPanel.hidden = source !== 'builtin';
+    elements.rankupSoundUploadPanel.hidden = source !== 'upload';
+    elements.rankupSoundUrlPanel.hidden = source !== 'url';
+    elements.rankupSoundStyle.value = settings.style;
+    elements.rankupSoundEnabled.checked = settings.enabled;
+
+    const customSettings = soundDraft || (
+      source === settings.source && (source === 'upload' || source === 'url') ? settings : null
+    );
+    const uploadName = source === 'upload'
+      ? soundDraft?.name || (settings.source === 'upload' ? settings.name : '')
+      : '';
+    elements.rankupSoundFileName.textContent = uploadName || '尚未选择文件';
+    if (source === 'url' && document.activeElement !== elements.rankupSoundUrl) {
+      elements.rankupSoundUrl.value = soundDraft?.url
+        || (settings.source === 'url' ? settings.url : '');
+    }
+
+    elements.rankupClipEditor.hidden = !customSettings;
+    if (customSettings) {
+      const duration = Math.max(
+        RankupSound.CLIP_DURATION,
+        Number(customSettings.duration) || Number(customSettings.clipStart) + RankupSound.CLIP_DURATION,
+      );
+      const clipStart = RankupSound.normalizeClipStart(customSettings.clipStart, duration);
+      elements.rankupClipStart.max = String(RankupSound.getMaxClipStart(duration));
+      elements.rankupClipStart.value = String(clipStart);
+      elements.rankupClipSourceName.textContent = customSettings.name || '自定义音效';
+      elements.rankupClipRange.textContent = `${RankupSound.formatTime(clipStart)} - ${RankupSound.formatTime(clipStart + RankupSound.CLIP_DURATION)}`;
+    }
+
+    if (soundDraft) {
+      setSoundStatus('已载入音乐，拖动滑块后试听并保存');
+    } else if (settings.source === 'upload' || settings.source === 'url') {
+      setSoundStatus(`当前：${settings.name} · ${RankupSound.formatTime(settings.clipStart)} - ${RankupSound.formatTime(settings.clipStart + RankupSound.CLIP_DURATION)} · 已同步到云端`);
+    } else {
+      setSoundStatus(`当前：${soundStyleLabel(settings.style)} · 已同步到云端`);
+    }
+  }
+
   function renderEditor() {
     const classroom = activeClassroom();
     elements.lessonInput.value = String(classroom.lesson);
     elements.collectiveGoalInput.value = String(classroom.collectiveGoal);
-    if (RankupSound) {
-      const soundSettings = RankupSound.getSettings();
-      elements.rankupSoundStyle.value = soundSettings.style;
-      elements.rankupSoundEnabled.checked = soundSettings.enabled;
-    }
+    renderSoundEditor();
     const disableDelete = classroom.students.length <= 1;
     elements.editorList.innerHTML = classroom.students.map((student, index) => `
       <section class="student-editor" data-editor-row="${escapeHtml(student.id)}" aria-label="学员 ${index + 1}">
@@ -966,6 +1043,7 @@
     rankupReturnFocus = document.activeElement;
     clearTimeout(rankupAutoCloseTimer);
     rankupAutoCloseTimer = null;
+    stopActiveSound();
     closeDrawer();
     elements.rankupStudent.textContent = studentName;
     elements.rankupOldRank.textContent = previousRank.name;
@@ -981,7 +1059,7 @@
     void elements.rankupOverlay.offsetWidth;
     elements.rankupOverlay.classList.add('is-active');
     elements.rankupOverlay.setAttribute('aria-hidden', 'false');
-    if (RankupSound) RankupSound.play(RankupSound.getSettings().style);
+    if (RankupSound) activeSoundPlayback = RankupSound.playSettings(appState.rankupSound);
     refreshIcons();
     requestAnimationFrame(() => elements.rankupOverlay.focus({ preventScroll: true }));
 
@@ -998,6 +1076,7 @@
 
   function finishRankupAnimation() {
     if (!elements.rankupOverlay.classList.contains('is-active')) return;
+    stopActiveSound();
     elements.rankupOverlay.classList.add('is-revealed');
     elements.rankupSkip.disabled = true;
     elements.rankupClose.disabled = false;
@@ -1006,6 +1085,7 @@
 
   function closeRankUpgrade() {
     if (!elements.rankupOverlay.classList.contains('is-active')) return;
+    stopActiveSound();
     clearTimeout(rankupAutoCloseTimer);
     rankupAutoCloseTimer = null;
     elements.rankupOverlay.classList.remove('is-active', 'is-revealed');
@@ -1030,14 +1110,224 @@
     toastTimer = setTimeout(() => elements.toast.classList.remove('is-visible'), 2200);
   }
 
-  function saveRankupSoundSettings() {
-    if (!RankupSound) return;
-    const settings = RankupSound.saveSettings({
-      style: elements.rankupSoundStyle.value,
-      enabled: elements.rankupSoundEnabled.checked,
+  function stopActiveSound() {
+    activeSoundPlayback?.stop?.();
+    activeSoundPlayback = null;
+  }
+
+  function clearSoundDraft({ render = false } = {}) {
+    stopActiveSound();
+    if (soundDraft?.previewUrl?.startsWith('blob:')) {
+      globalThis.URL?.revokeObjectURL?.(soundDraft.previewUrl);
+    }
+    soundDraft = null;
+    elements.rankupSoundFile.value = '';
+    if (render) renderSoundEditor();
+  }
+
+  function updateRankupSound(patch) {
+    appState = State.normalizeAppState({
+      ...appState,
+      rankupSound: { ...appState.rankupSound, ...patch },
     });
-    elements.rankupSoundStyle.value = settings.style;
-    elements.rankupSoundEnabled.checked = settings.enabled;
+    persist();
+    renderSoundEditor();
+  }
+
+  function selectSoundSource(source) {
+    if (!['builtin', 'upload', 'url'].includes(source)) return;
+    if (soundDraft && soundDraft.source !== source) clearSoundDraft();
+    soundEditorSource = source;
+    renderSoundEditor();
+  }
+
+  async function loadSoundFile(file) {
+    if (!requireAdmin() || !file || !RankupSound) return;
+    const validation = RankupSound.validateAudioFile(file);
+    if (!validation.valid) {
+      setSoundStatus(validation.error, true);
+      showToast(validation.error);
+      elements.rankupSoundFile.value = '';
+      return;
+    }
+    const previewUrl = globalThis.URL?.createObjectURL?.(file);
+    if (!previewUrl) {
+      setSoundStatus('当前浏览器无法读取所选文件', true);
+      return;
+    }
+    elements.rankupSoundPickFile.disabled = true;
+    setSoundStatus('正在读取音乐时长…');
+    try {
+      const { duration } = await RankupSound.inspectAudio(previewUrl);
+      clearSoundDraft();
+      soundEditorSource = 'upload';
+      soundDraft = {
+        enabled: elements.rankupSoundEnabled.checked,
+        source: 'upload',
+        style: appState.rankupSound.style,
+        url: previewUrl,
+        previewUrl,
+        file,
+        name: file.name.replace(/\.[^.]+$/, '') || '自定义音效',
+        storagePath: '',
+        duration,
+        clipStart: 0,
+        clipDuration: RankupSound.CLIP_DURATION,
+      };
+      renderSoundEditor();
+    } catch (error) {
+      globalThis.URL?.revokeObjectURL?.(previewUrl);
+      const message = error?.message || '无法读取音频';
+      setSoundStatus(message, true);
+      showToast(message);
+    } finally {
+      elements.rankupSoundPickFile.disabled = false;
+    }
+  }
+
+  async function loadSoundUrl() {
+    if (!requireAdmin() || !RankupSound) return;
+    const validation = RankupSound.validateAudioUrl(elements.rankupSoundUrl.value);
+    if (!validation.valid) {
+      setSoundStatus(validation.error, true);
+      showToast(validation.error);
+      return;
+    }
+    elements.rankupSoundLoadUrl.disabled = true;
+    setSoundStatus('正在读取音乐时长…');
+    try {
+      const { duration } = await RankupSound.inspectAudio(validation.url);
+      clearSoundDraft();
+      soundEditorSource = 'url';
+      const pathName = new URL(validation.url).pathname.split('/').pop() || '网络音效';
+      soundDraft = {
+        enabled: elements.rankupSoundEnabled.checked,
+        source: 'url',
+        style: appState.rankupSound.style,
+        url: validation.url,
+        name: decodeURIComponent(pathName).replace(/\.[^.]+$/, '') || '网络音效',
+        storagePath: '',
+        duration,
+        clipStart: 0,
+        clipDuration: RankupSound.CLIP_DURATION,
+      };
+      renderSoundEditor();
+    } catch (error) {
+      const message = error?.message || '无法读取音频';
+      setSoundStatus(message, true);
+      showToast(message);
+    } finally {
+      elements.rankupSoundLoadUrl.disabled = false;
+    }
+  }
+
+  function updateSoundClipStart(value) {
+    const source = getSoundEditorSource();
+    const base = soundDraft || (
+      appState.rankupSound.source === source ? appState.rankupSound : null
+    );
+    if (!base || source === 'builtin') return;
+    const duration = Math.max(
+      RankupSound.CLIP_DURATION,
+      Number(base.duration) || Number(base.clipStart) + RankupSound.CLIP_DURATION,
+    );
+    soundDraft = {
+      ...base,
+      duration,
+      clipStart: RankupSound.normalizeClipStart(value, duration),
+    };
+    renderSoundEditor();
+  }
+
+  function previewRankupSound() {
+    if (!RankupSound) return;
+    const source = getSoundEditorSource();
+    let settings = soundDraft;
+    if (!settings && source === appState.rankupSound.source) settings = appState.rankupSound;
+    if (!settings && source === 'builtin') {
+      settings = {
+        ...appState.rankupSound,
+        source: 'builtin',
+        style: elements.rankupSoundStyle.value,
+      };
+    }
+    if (!settings) {
+      showToast('请先载入音乐');
+      return;
+    }
+    stopActiveSound();
+    activeSoundPlayback = RankupSound.playSettings(settings);
+    if (!activeSoundPlayback.started) showToast('晋级音效已静音');
+  }
+
+  async function saveSoundClip() {
+    if (!requireAdmin() || !soundDraft) {
+      showToast('请先载入音乐并选择片段');
+      return;
+    }
+    const previousPath = appState.rankupSound.storagePath;
+    const draft = soundDraft;
+    elements.rankupSoundSaveClip.disabled = true;
+    setSoundStatus(draft.source === 'upload' && draft.file ? '正在上传并保存…' : '正在保存片段…');
+    try {
+      let url = draft.url;
+      let storagePath = draft.storagePath || '';
+      if (draft.source === 'upload' && draft.file) {
+        if (!cloudSync) throw new Error('上传音乐需要打开正式网址');
+        const uploaded = await cloudSync.uploadRankupAudio(draft.file);
+        url = uploaded.url;
+        storagePath = uploaded.path;
+      }
+      stopActiveSound();
+      updateRankupSound({
+        enabled: elements.rankupSoundEnabled.checked,
+        source: draft.source,
+        style: appState.rankupSound.style,
+        url,
+        name: draft.name,
+        storagePath,
+        duration: draft.duration,
+        clipStart: draft.clipStart,
+        clipDuration: RankupSound.CLIP_DURATION,
+      });
+      if (cloudSync) await cloudSync.flush();
+      if (cloudSync && previousPath && previousPath !== storagePath) {
+        void cloudSync.removeRankupAudio(previousPath).catch(() => {});
+      }
+      const savedName = draft.name;
+      clearSoundDraft();
+      soundEditorSource = appState.rankupSound.source;
+      renderSoundEditor();
+      showToast(`${savedName} 的片段已同步`);
+    } catch (error) {
+      const message = error?.message || '音效保存失败，请稍后重试';
+      setSoundStatus(message, true);
+      showToast(message);
+    } finally {
+      elements.rankupSoundSaveClip.disabled = false;
+    }
+  }
+
+  async function saveBuiltinSound(style = 'horn') {
+    if (!requireAdmin()) return;
+    const previousPath = appState.rankupSound.storagePath;
+    clearSoundDraft();
+    soundEditorSource = 'builtin';
+    updateRankupSound({
+      ...State.DEFAULT_RANKUP_SOUND,
+      enabled: elements.rankupSoundEnabled.checked,
+      style,
+      name: soundStyleLabel(style),
+    });
+    try {
+      if (cloudSync) await cloudSync.flush();
+      if (cloudSync && previousPath) {
+        void cloudSync.removeRankupAudio(previousPath).catch(() => {});
+      }
+      showToast(`已选择${soundStyleLabel(style)}`);
+    } catch {
+      showToast('音效设置已保存在本地，等待云端重试');
+    }
   }
 
   document.querySelectorAll('[data-view]').forEach((button) => {
@@ -1098,19 +1388,30 @@
   elements.lessonInput.addEventListener('change', () => updateLesson(elements.lessonInput.value));
   elements.collectiveGoalInput.addEventListener('change', () => updateCollectiveGoal(elements.collectiveGoalInput.value));
   elements.rankupSoundStyle.addEventListener('change', () => {
-    saveRankupSoundSettings();
-    const currentStyle = RankupSound.getSettings().style;
-    const option = RankupSound.options.find((candidate) => candidate.id === currentStyle);
-    showToast(`已选择${option?.label || '王者号角'}音效`);
+    void saveBuiltinSound(elements.rankupSoundStyle.value);
   });
   elements.rankupSoundEnabled.addEventListener('change', () => {
-    saveRankupSoundSettings();
+    updateRankupSound({ enabled: elements.rankupSoundEnabled.checked });
     showToast(elements.rankupSoundEnabled.checked ? '已开启晋级音效' : '已静音晋级音效');
   });
-  elements.rankupSoundPreview.addEventListener('click', () => {
-    saveRankupSoundSettings();
-    if (!RankupSound.play(RankupSound.getSettings().style)) showToast('晋级音效已静音');
+  elements.rankupSoundSourceButtons.forEach((button) => {
+    button.addEventListener('click', () => selectSoundSource(button.dataset.soundSource));
   });
+  elements.rankupSoundPreview.addEventListener('click', previewRankupSound);
+  elements.rankupSoundPickFile.addEventListener('click', () => elements.rankupSoundFile.click());
+  elements.rankupSoundFile.addEventListener('change', () => {
+    void loadSoundFile(elements.rankupSoundFile.files?.[0]);
+  });
+  elements.rankupSoundLoadUrl.addEventListener('click', () => void loadSoundUrl());
+  elements.rankupSoundUrl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void loadSoundUrl();
+    }
+  });
+  elements.rankupClipStart.addEventListener('input', () => updateSoundClipStart(elements.rankupClipStart.value));
+  elements.rankupSoundSaveClip.addEventListener('click', () => void saveSoundClip());
+  elements.rankupSoundReset.addEventListener('click', () => void saveBuiltinSound('horn'));
   elements.addStudent.addEventListener('click', addStudent);
   elements.restoreData.addEventListener('click', restoreDefaultData);
   elements.rankupSkip.addEventListener('click', finishRankupAnimation);

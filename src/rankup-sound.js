@@ -283,6 +283,7 @@
 
     const releaseAudio = () => {
       audio.removeEventListener?.('error', handleFailure);
+      audio.removeEventListener?.('loadedmetadata', handleMetadata);
       audio.removeEventListener?.('timeupdate', handleTimeUpdate);
       audio.pause?.();
       audio.removeAttribute?.('src');
@@ -304,13 +305,21 @@
     const handleTimeUpdate = () => {
       if (Number(audio.currentTime) >= clipEnd) stop();
     };
+    const handleMetadata = () => {
+      try {
+        audio.currentTime = clipStart;
+      } catch {
+        handleFailure();
+      }
+    };
 
     audio.addEventListener?.('error', handleFailure);
+    audio.addEventListener?.('loadedmetadata', handleMetadata);
     audio.addEventListener?.('timeupdate', handleTimeUpdate);
     audio.preload = 'auto';
     audio.src = validatedUrl.url;
     try {
-      audio.currentTime = clipStart;
+      if (audio.readyState >= 1) handleMetadata();
       const playResult = audio.play?.();
       if (playResult && typeof playResult.catch === 'function') {
         void playResult.catch(handleFailure);

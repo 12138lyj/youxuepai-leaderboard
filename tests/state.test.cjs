@@ -396,6 +396,7 @@ test('normalizes global rank-up sound settings with a fixed 5.2 second clip', ()
       url: 'https://example.com/music.mp3?version=2',
       name: '  课堂冲刺  ',
       storagePath: 'main/123-music.mp3',
+      duration: 30.04,
       clipStart: 12.46,
       clipDuration: 99,
     },
@@ -409,6 +410,7 @@ test('normalizes global rank-up sound settings with a fixed 5.2 second clip', ()
     url: 'https://example.com/music.mp3?version=2',
     name: '课堂冲刺',
     storagePath: 'main/123-music.mp3',
+    duration: 30,
     clipStart: 12.5,
     clipDuration: 5.2,
   });
@@ -423,6 +425,7 @@ test('falls back to 王者号角 for missing or invalid custom sound settings', 
     url: '',
     name: '王者号角',
     storagePath: '',
+    duration: 0,
     clipStart: 0,
     clipDuration: 5.2,
   });

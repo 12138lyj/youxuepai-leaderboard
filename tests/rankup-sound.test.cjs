@@ -172,3 +172,25 @@ test('falls back to the selected built-in style only once when custom playback f
   assert.deepEqual(fallbackStyles, ['crystal']);
   handle.stop();
 });
+
+test('waits for media metadata before seeking to a non-zero clip start', () => {
+  const audio = createFakeAudio({ duration: 30 });
+  audio.readyState = 0;
+  const handle = sound.playSettings({
+    enabled: true,
+    source: 'url',
+    style: 'horn',
+    url: 'https://example.com/music.mp3',
+    clipStart: 9.3,
+  }, {
+    audioFactory: () => audio,
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+
+  assert.equal(audio.playCalls, 1);
+  assert.equal(audio.currentTime, 0);
+  audio.emit('loadedmetadata');
+  assert.equal(audio.currentTime, 9.3);
+  handle.stop();
+});
