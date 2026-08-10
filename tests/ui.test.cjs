@@ -390,13 +390,29 @@ test('shows the coach-defined rank thresholds in both leaderboard views', () => 
   assert.doesNotMatch(html, /每 300 分升一档/);
 });
 
-test('exposes rank-up sound choices and a local mute control', () => {
+test('exposes cloud sound sources and a fixed clip editor', () => {
   const html = fs.readFileSync(indexPath, 'utf8');
+  for (const id of [
+    'rankup-sound-source-builtin',
+    'rankup-sound-source-upload',
+    'rankup-sound-source-url',
+    'rankup-sound-file',
+    'rankup-sound-url',
+    'rankup-sound-load-url',
+    'rankup-clip-editor',
+    'rankup-clip-start',
+    'rankup-clip-range',
+    'rankup-sound-preview',
+    'rankup-sound-save-clip',
+    'rankup-sound-reset',
+  ]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /id="rankup-sound-style"/);
   assert.match(html, /王者号角/);
   assert.match(html, /水晶解锁/);
   assert.match(html, /星耀冲刺/);
   assert.match(html, /id="rankup-sound-enabled"/);
+  assert.match(html, /固定 5\.2 秒/);
+  assert.match(html, /所有设备同步/);
   assert.match(html, /src\/rankup-sound\.js\?v=20260808-ranks-audio-v1/);
 });
 

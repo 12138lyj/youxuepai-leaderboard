@@ -194,14 +194,30 @@
         <div class="sound-settings-heading">
           <div>
             <h3 id="sound-settings-title">晋级音效</h3>
-            <p>段位升级时播放，设置只保存在当前浏览器</p>
+            <p>上传完整音乐，选择固定 5.2 秒，所有设备同步</p>
           </div>
           <button id="rankup-sound-preview" class="secondary-action sound-preview-button" type="button">
             <i data-lucide="play" aria-hidden="true"></i>
-            试听
+            试听片段
           </button>
         </div>
-        <div class="sound-settings-controls">
+
+        <div class="sound-source-segments" role="group" aria-label="音效来源">
+          <button id="rankup-sound-source-builtin" class="is-active" type="button" data-sound-source="builtin" aria-pressed="true">
+            <i data-lucide="music-2" aria-hidden="true"></i>
+            内置音效
+          </button>
+          <button id="rankup-sound-source-upload" type="button" data-sound-source="upload" aria-pressed="false">
+            <i data-lucide="upload" aria-hidden="true"></i>
+            上传音乐
+          </button>
+          <button id="rankup-sound-source-url" type="button" data-sound-source="url" aria-pressed="false">
+            <i data-lucide="link" aria-hidden="true"></i>
+            音频网址
+          </button>
+        </div>
+
+        <div id="rankup-sound-builtin-panel" class="sound-source-panel">
           <label class="sound-style-field" for="rankup-sound-style">
             <span>音效风格</span>
             <select id="rankup-sound-style">
@@ -210,12 +226,61 @@
               <option value="star">星耀冲刺</option>
             </select>
           </label>
+        </div>
+
+        <div id="rankup-sound-upload-panel" class="sound-source-panel" hidden>
+          <div class="sound-upload-row">
+            <input id="rankup-sound-file" type="file" accept=".mp3,.m4a,.wav,.ogg,audio/mpeg,audio/mp4,audio/wav,audio/ogg" hidden>
+            <button id="rankup-sound-pick-file" class="secondary-action" type="button">
+              <i data-lucide="folder-music" aria-hidden="true"></i>
+              选择音乐
+            </button>
+            <span id="rankup-sound-file-name" class="sound-file-name">尚未选择文件</span>
+          </div>
+        </div>
+
+        <div id="rankup-sound-url-panel" class="sound-source-panel" hidden>
+          <div class="sound-url-row">
+            <label class="visually-hidden" for="rankup-sound-url">HTTPS 音频直链</label>
+            <input id="rankup-sound-url" type="url" inputmode="url" placeholder="https://example.com/music.mp3" autocomplete="url">
+            <button id="rankup-sound-load-url" class="secondary-action" type="button">
+              <i data-lucide="download" aria-hidden="true"></i>
+              载入网址
+            </button>
+          </div>
+        </div>
+
+        <div id="rankup-clip-editor" class="sound-clip-editor" hidden>
+          <div class="sound-clip-summary">
+            <div>
+              <strong>选择片段</strong>
+              <span id="rankup-clip-source-name">自定义音效</span>
+            </div>
+            <span class="sound-duration-tag">固定 5.2 秒</span>
+          </div>
+          <label class="visually-hidden" for="rankup-clip-start">片段开始位置</label>
+          <input id="rankup-clip-start" type="range" min="0" max="0" step="0.1" value="0">
+          <div class="sound-clip-bottom">
+            <span id="rankup-clip-range" class="sound-clip-range">00:00.0 - 00:05.2</span>
+            <button id="rankup-sound-save-clip" class="primary-action" type="button">
+              <i data-lucide="cloud-upload" aria-hidden="true"></i>
+              保存这个片段
+            </button>
+          </div>
+        </div>
+
+        <div class="sound-settings-controls">
           <label class="sound-toggle">
             <input id="rankup-sound-enabled" type="checkbox">
             <span class="sound-toggle-track" aria-hidden="true"></span>
             <span>播放晋级音效</span>
           </label>
+          <button id="rankup-sound-reset" class="sound-reset-button" type="button">
+            <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+            恢复王者号角
+          </button>
         </div>
+        <p id="rankup-sound-status" class="sound-status" role="status" aria-live="polite"></p>
       </section>
 
       <div class="editor-heading">
