@@ -409,7 +409,7 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260808-ranks-audio-v1`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260810-cloud-audio-clip-v1`), true, `${asset} must be versioned`);
   }
 });
 
@@ -442,7 +442,7 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /id="rankup-sound-enabled"/);
   assert.match(html, /固定 5\.2 秒/);
   assert.match(html, /所有设备同步/);
-  assert.match(html, /src\/rankup-sound\.js\?v=20260808-ranks-audio-v1/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260810-cloud-audio-clip-v1/);
 });
 
 test('saves a selected 5.2 second URL clip into cloud app state', async () => {
