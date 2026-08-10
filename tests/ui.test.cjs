@@ -335,6 +335,7 @@ test('expired authentication closes editing and preserves unsynced data', async 
     const points = page.locator('input[data-student-id="s1"][data-field="totalPoints"]');
     await points.fill('300');
     await points.dispatchEvent('change');
+    await page.waitForFunction(() => localStorage.getItem('youxuepai-leaderboard-pending-v1') !== null);
     await fakeCloud.emitAuth('TOKEN_REFRESH_FAILED');
 
     assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'true');
