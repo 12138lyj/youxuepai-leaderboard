@@ -10,6 +10,12 @@ const projectRoot = path.join(__dirname, '..');
 const configPath = path.join(projectRoot, 'src', 'cloud-config.js');
 const sdkPath = path.join(projectRoot, 'vendor', 'supabase.min.js');
 
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 function createFakeSupabase(options = {}) {
   const record = options.record || {
     payload: { classes: [] },
@@ -66,7 +72,9 @@ function createFakeSupabase(options = {}) {
         restoreCalls.push(Number(params.p_snapshot_id));
         return {
           async single() {
-            return { data: options.restoredRecord || record, error: null };
+            if (options.restoreGate) await options.restoreGate.promise;
+            if (options.restoredRecord) Object.assign(record, options.restoredRecord);
+            return { data: record, error: null };
           },
         };
       }
@@ -74,6 +82,7 @@ function createFakeSupabase(options = {}) {
       savedPayloads.push(params.p_payload);
       return {
         async single() {
+          if (options.saveGate) await options.saveGate.promise;
           if (failNextSave) {
             failNextSave = false;
             return { data: null, error: new Error('temporary failure') };
@@ -246,6 +255,103 @@ test('rejects invalid snapshot ids without calling the cloud', async () => {
   const cloud = Cloud.createCloudSync({ client: fake.client, normalize: (value) => value });
   await assert.rejects(cloud.restoreSnapshot('bad'), /无效的历史版本/);
   assert.deepEqual(fake.restoreCalls, []);
+});
+
+test('serializes restore behind an in-flight save without saving the same payload twice', async () => {
+  const saveGate = createDeferred();
+  const fake = createFakeSupabase({
+    saveGate,
+    restoredRecord: { payload: { value: 4 }, revision: 9 },
+  });
+  const cloud = Cloud.createCloudSync({ client: fake.client, normalize: (value) => value });
+  cloud.queueSave({ value: 8 });
+
+  const saving = cloud.flush();
+  await Promise.resolve();
+  const restoring = cloud.restoreSnapshot(44);
+  await Promise.resolve();
+
+  assert.deepEqual(fake.savedPayloads, [{ value: 8 }]);
+  assert.deepEqual(fake.restoreCalls, []);
+  saveGate.resolve();
+  await saving;
+  await restoring;
+  assert.deepEqual(fake.savedPayloads, [{ value: 8 }]);
+  assert.deepEqual(fake.restoreCalls, [44]);
+});
+
+test('preserves edits queued while a restore request is in flight', async () => {
+  const restoreGate = createDeferred();
+  const fake = createFakeSupabase({
+    restoreGate,
+    restoredRecord: { payload: { value: 4 }, revision: 9 },
+  });
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (value) => value,
+    debounceMs: 1000,
+  });
+
+  const restoring = cloud.restoreSnapshot(44);
+  while (fake.restoreCalls.length === 0) await Promise.resolve();
+  cloud.queueSave({ value: 12 });
+  restoreGate.resolve();
+  await restoring;
+
+  assert.deepEqual(fake.savedPayloads, [{ value: 12 }]);
+  assert.equal(cloud.getPendingPayload(), null);
+});
+
+test('returns the newer edit queued during restore instead of the stale snapshot', async () => {
+  const restoreGate = createDeferred();
+  const fake = createFakeSupabase({
+    restoreGate,
+    record: { payload: { value: 8 }, revision: 8 },
+    restoredRecord: { payload: { value: 4 }, revision: 9 },
+  });
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (value) => value,
+    debounceMs: 1000,
+  });
+
+  const restoring = cloud.restoreSnapshot(44);
+  while (fake.restoreCalls.length === 0) await Promise.resolve();
+  cloud.queueSave({ value: 12 });
+  restoreGate.resolve();
+  const row = await restoring;
+
+  assert.deepEqual(fake.savedPayloads, [{ value: 12 }]);
+  assert.deepEqual(row.payload, { value: 12 });
+  assert.equal(row.revision, 10);
+  assert.equal(row.superseded, true);
+  assert.equal(cloud.getPendingPayload(), null);
+});
+
+test('keeps a newer realtime revision when it arrives before the restore response', async () => {
+  const restoreGate = createDeferred();
+  const fake = createFakeSupabase({
+    restoreGate,
+    restoredRecord: { payload: { value: 4 }, revision: 9 },
+  });
+  const remoteRows = [];
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (value) => value,
+    onRemote: (row) => remoteRows.push(row),
+  });
+  cloud.subscribe();
+
+  const restoring = cloud.restoreSnapshot(44);
+  while (fake.restoreCalls.length === 0) await Promise.resolve();
+  fake.emitRemote({ payload: { value: 10 }, revision: 10 });
+  restoreGate.resolve();
+  const row = await restoring;
+
+  assert.equal(cloud.getRevision(), 10);
+  assert.equal(row.revision, 10);
+  assert.deepEqual(row.payload, { value: 10 });
+  assert.deepEqual(remoteRows, [{ payload: { value: 10 }, revision: 10 }]);
 });
 
 test('keeps pending data after a failed save and retries it', async () => {

@@ -57,6 +57,10 @@
   let soundEditorSource = null;
   let soundDraft = null;
   let activeSoundPlayback = null;
+  let historySnapshots = [];
+  let selectedHistorySnapshot = null;
+  let historyBusy = false;
+  let historyReturnFocus = null;
 
   const elements = {
     lessonSubtitle: document.querySelector('#lesson-subtitle'),
@@ -121,6 +125,15 @@
     rankupNewRank: document.querySelector('#rankup-new-rank'),
     rankupClose: document.querySelector('#rankup-close'),
     toast: document.querySelector('#toast'),
+    historyOpen: document.querySelector('#history-open'),
+    historyCount: document.querySelector('#history-count'),
+    historyDialog: document.querySelector('#history-dialog'),
+    historyList: document.querySelector('#history-list'),
+    historyClose: document.querySelector('#history-close'),
+    historyRestoreDialog: document.querySelector('#history-restore-dialog'),
+    historyConfirmCopy: document.querySelector('#history-confirm-copy'),
+    historyRestoreCancel: document.querySelector('#history-restore-cancel'),
+    historyRestoreConfirm: document.querySelector('#history-restore-confirm'),
   };
 
   function loadState() {
@@ -204,6 +217,7 @@
     }
     renderDisplay();
     if (elements.drawer.classList.contains('is-open')) renderEditor();
+    if (elements.historyDialog.open) renderHistory();
   }
 
   async function initializeCloud() {
@@ -230,6 +244,7 @@
         if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
           isAdmin = false;
           closeDrawer();
+          closeHistory();
           updateAdminUi();
         } else if (event === 'SIGNED_IN') {
           isAdmin = true;
@@ -310,6 +325,7 @@
       await cloudSync.signOut();
       isAdmin = false;
       closeDrawer();
+      closeHistory();
       updateAdminUi();
       showToast('已退出管理模式');
     } catch {
@@ -615,6 +631,148 @@
     renderBoards();
     renderRanks();
     refreshIcons();
+  }
+
+  function snapshotSummary(snapshot) {
+    const payload = State.normalizeAppState(snapshot.payload);
+    const classrooms = payload.classes || [];
+    const students = classrooms.reduce((total, classroom) => total + classroom.students.length, 0);
+    const points = classrooms.reduce((total, classroom) => total + classroom.students.reduce(
+      (sum, student) => sum + studentTotalPoints(classroom, student), 0,
+    ), 0);
+    const sound = payload.rankupSound;
+    const audio = !sound.enabled
+      ? '已静音'
+      : sound.source === 'builtin'
+        ? soundStyleLabel(sound.style)
+        : sound.name || (sound.source === 'url' ? '网址音效' : '自定义音效');
+    return {
+      classes: classrooms.length,
+      students,
+      points,
+      lesson: State.getActiveClassroom(payload)?.lesson || 0,
+      audio,
+    };
+  }
+
+  function formatHistoryDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '时间未知';
+    return new Intl.DateTimeFormat('zh-CN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  function renderHistory() {
+    const currentRevision = cloudSync?.getRevision?.() || cloudRevision;
+    elements.historyCount.textContent = historySnapshots.length
+      ? String(historySnapshots.length)
+      : '--';
+    if (!historySnapshots.length) {
+      elements.historyList.innerHTML = '<p class="history-empty">暂时没有历史版本</p>';
+      return;
+    }
+    elements.historyList.innerHTML = historySnapshots.map((snapshot) => {
+      const summary = snapshotSummary(snapshot);
+      const current = Number(snapshot.revision) === currentRevision;
+      return `
+        <article class="history-version">
+          <span class="history-version-number">v${Number(snapshot.revision)}</span>
+          <div>
+            <h3>${summary.lesson ? `第 ${summary.lesson} 节课 · ` : ''}${current ? '当前版本' : '自动保存'}</h3>
+            <p>${escapeHtml(formatHistoryDate(snapshot.created_at))} · ${summary.classes}个班级 · ${summary.students}名学员 · 总积分 ${summary.points.toLocaleString('zh-CN')} · 音效：${escapeHtml(summary.audio)}</p>
+          </div>
+          <button class="history-restore-button" type="button" data-history-id="${Number(snapshot.id)}" ${current ? 'disabled' : ''}>${current ? '当前版本' : '恢复此版本'}</button>
+        </article>
+      `;
+    }).join('');
+    refreshIcons();
+  }
+
+  async function openHistory() {
+    if (!requireAdmin() || !cloudSync) return;
+    historyReturnFocus = document.activeElement;
+    elements.historyList.innerHTML = '<p class="history-empty">正在读取历史版本...</p>';
+    elements.historyDialog.showModal();
+    try {
+      await cloudSync.flush();
+      historySnapshots = await cloudSync.listHistory();
+      renderHistory();
+    } catch {
+      elements.historyCount.textContent = '--';
+      elements.historyList.innerHTML = '<p class="history-empty is-error">历史版本读取失败，请稍后重试</p>';
+    }
+  }
+
+  function closeHistory() {
+    if (elements.historyRestoreDialog.open) elements.historyRestoreDialog.close();
+    if (elements.historyDialog.open) elements.historyDialog.close();
+    selectedHistorySnapshot = null;
+    const returnTarget = historyReturnFocus;
+    historyReturnFocus = null;
+    const canRestoreFocus = returnTarget instanceof HTMLElement
+      && returnTarget.isConnected
+      && !returnTarget.hasAttribute('disabled')
+      && !returnTarget.closest('[hidden], [aria-hidden="true"]')
+      && returnTarget.getClientRects().length > 0;
+    (canRestoreFocus ? returnTarget : elements.editButton).focus();
+  }
+
+  function requestHistoryRestore(snapshotId) {
+    selectedHistorySnapshot = historySnapshots.find(
+      (snapshot) => Number(snapshot.id) === Number(snapshotId),
+    ) || null;
+    if (!selectedHistorySnapshot) return;
+    elements.historyConfirmCopy.textContent = `将整个网站恢复到 v${Number(selectedHistorySnapshot.revision)}（${formatHistoryDate(selectedHistorySnapshot.created_at)}）。所有班级、积分、徽章和音效都会替换，当前状态会先自动留档。`;
+    elements.historyRestoreDialog.showModal();
+  }
+
+  function closeHistoryRestore() {
+    if (historyBusy) return;
+    const snapshotId = Number(selectedHistorySnapshot?.id);
+    if (elements.historyRestoreDialog.open) elements.historyRestoreDialog.close();
+    selectedHistorySnapshot = null;
+    const returnTarget = Number.isSafeInteger(snapshotId)
+      ? elements.historyList.querySelector(`[data-history-id="${snapshotId}"]`)
+      : null;
+    returnTarget?.focus();
+  }
+
+  async function confirmHistoryRestore() {
+    if (!selectedHistorySnapshot || historyBusy || !cloudSync) return;
+    historyBusy = true;
+    elements.historyRestoreConfirm.disabled = true;
+    elements.historyRestoreCancel.disabled = true;
+    elements.historyRestoreDialog.setAttribute('aria-busy', 'true');
+    const restoredRevision = Number(selectedHistorySnapshot.revision);
+    try {
+      let row;
+      try {
+        row = await cloudSync.restoreSnapshot(selectedHistorySnapshot.id);
+      } catch {
+        elements.historyConfirmCopy.textContent = '恢复失败，当前数据没有改变，请重试。';
+        return;
+      }
+      applyRemoteState(row);
+      elements.historyRestoreDialog.close();
+      elements.historyClose.focus();
+      showToast(row.superseded
+        ? '恢复完成，但云端已有更新，已显示最新版本'
+        : `已恢复到 v${restoredRevision}，并生成新版本`);
+      try {
+        historySnapshots = await cloudSync.listHistory();
+        renderHistory();
+      } catch {
+        elements.historyCount.textContent = '--';
+        elements.historyList.innerHTML = '<p class="history-empty is-error">恢复成功，但历史列表刷新失败，请关闭后重新打开</p>';
+      }
+    } finally {
+      historyBusy = false;
+      elements.historyRestoreConfirm.disabled = false;
+      elements.historyRestoreCancel.disabled = false;
+      elements.historyRestoreDialog.removeAttribute('aria-busy');
+    }
   }
 
   function soundStyleLabel(style) {
@@ -1265,7 +1423,6 @@
       showToast('请先载入音乐并选择片段');
       return;
     }
-    const previousPath = appState.rankupSound.storagePath;
     const draft = soundDraft;
     elements.rankupSoundSaveClip.disabled = true;
     setSoundStatus(draft.source === 'upload' && draft.file ? '正在上传并保存…' : '正在保存片段…');
@@ -1291,9 +1448,6 @@
         clipDuration: RankupSound.CLIP_DURATION,
       });
       if (cloudSync) await cloudSync.flush();
-      if (cloudSync && previousPath && previousPath !== storagePath) {
-        void cloudSync.removeRankupAudio(previousPath).catch(() => {});
-      }
       const savedName = draft.name;
       clearSoundDraft();
       soundEditorSource = appState.rankupSound.source;
@@ -1310,7 +1464,6 @@
 
   async function saveBuiltinSound(style = 'horn') {
     if (!requireAdmin()) return;
-    const previousPath = appState.rankupSound.storagePath;
     clearSoundDraft();
     soundEditorSource = 'builtin';
     updateRankupSound({
@@ -1321,9 +1474,6 @@
     });
     try {
       if (cloudSync) await cloudSync.flush();
-      if (cloudSync && previousPath) {
-        void cloudSync.removeRankupAudio(previousPath).catch(() => {});
-      }
       showToast(`已选择${soundStyleLabel(style)}`);
     } catch {
       showToast('音效设置已保存在本地，等待云端重试');
@@ -1382,6 +1532,18 @@
     elements.editButton.focus();
   });
   elements.adminLogout.addEventListener('click', signOutAdmin);
+  elements.historyOpen.addEventListener('click', () => void openHistory());
+  elements.historyClose.addEventListener('click', closeHistory);
+  elements.historyRestoreCancel.addEventListener('click', closeHistoryRestore);
+  elements.historyRestoreDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeHistoryRestore();
+  });
+  elements.historyRestoreConfirm.addEventListener('click', () => void confirmHistoryRestore());
+  elements.historyList.addEventListener('click', (event) => {
+    const restoreButton = event.target.closest('[data-history-id]');
+    if (restoreButton && !restoreButton.disabled) requestHistoryRestore(restoreButton.dataset.historyId);
+  });
   elements.drawerClose.addEventListener('click', closeDrawer);
   elements.drawerDone.addEventListener('click', closeDrawer);
   elements.drawerBackdrop.addEventListener('click', closeDrawer);
@@ -1439,7 +1601,11 @@
     if (elements.classSwitcherButton.getAttribute('aria-expanded') === 'true') {
       setClassMenuOpen(false);
       elements.classSwitcherButton.focus();
-    } else if (elements.rankupOverlay.classList.contains('is-active')) closeRankUpgrade();
+    } else if (elements.historyRestoreDialog.open) {
+      event.preventDefault();
+      closeHistoryRestore();
+    } else if (elements.historyDialog.open) closeHistory();
+    else if (elements.rankupOverlay.classList.contains('is-active')) closeRankUpgrade();
     else if (elements.drawer.classList.contains('is-open')) closeDrawer();
   });
 

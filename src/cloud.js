@@ -20,6 +20,8 @@
     let saveTimer = null;
     let channel = null;
     let authSubscription = null;
+    let mutationTail = Promise.resolve();
+    let latestRemoteRow = null;
 
     async function load() {
       onStatus('connecting');
@@ -100,41 +102,69 @@
       return true;
     }
 
-    async function flush() {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-      if (!pendingPayload) return null;
-      const payload = pendingPayload;
-      onStatus('saving');
-      const { data, error } = await client
-        .rpc('save_leaderboard_state', { p_payload: payload })
-        .single();
-      if (error) {
-        onStatus('failed');
-        throw error;
-      }
-      if (pendingPayload === payload) pendingPayload = null;
-      revision = Number(data.revision) || revision;
-      onStatus('synced');
-      return { ...data, revision, payload: normalize(data.payload) };
+    function enqueueMutation(operation) {
+      const result = mutationTail.catch(() => {}).then(operation);
+      mutationTail = result.catch(() => {});
+      return result;
     }
 
-    async function restoreSnapshot(snapshotId) {
-      const id = Number(snapshotId);
-      if (!Number.isSafeInteger(id) || id <= 0) throw new Error('无效的历史版本');
-      await flush();
-      onStatus('saving');
-      const { data, error } = await client
-        .rpc('restore_leaderboard_snapshot', { p_snapshot_id: id })
-        .single();
-      if (error) {
-        onStatus('failed');
-        throw error;
+    async function flushPendingPayloads() {
+      let savedRow = null;
+      while (pendingPayload) {
+        const payload = pendingPayload;
+        onStatus('saving');
+        const { data, error } = await client
+          .rpc('save_leaderboard_state', { p_payload: payload })
+          .single();
+        if (error) {
+          onStatus('failed');
+          throw error;
+        }
+        if (pendingPayload === payload) pendingPayload = null;
+        revision = Number(data.revision) || revision;
+        savedRow = { ...data, revision, payload: normalize(data.payload) };
       }
-      pendingPayload = null;
-      revision = Number(data.revision) || revision;
-      onStatus('synced');
-      return { ...data, revision, payload: normalize(data.payload) };
+      if (savedRow) onStatus('synced');
+      return savedRow;
+    }
+
+    function flush() {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return enqueueMutation(flushPendingPayloads);
+    }
+
+    function restoreSnapshot(snapshotId) {
+      const id = Number(snapshotId);
+      if (!Number.isSafeInteger(id) || id <= 0) return Promise.reject(new Error('无效的历史版本'));
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return enqueueMutation(async () => {
+        await flushPendingPayloads();
+        onStatus('saving');
+        const { data, error } = await client
+          .rpc('restore_leaderboard_snapshot', { p_snapshot_id: id })
+          .single();
+        if (error) {
+          onStatus('failed');
+          throw error;
+        }
+        const restoredRevision = Number(data.revision) || 0;
+        const newerRemoteRow = restoredRevision < revision && latestRemoteRow?.revision === revision
+          ? latestRemoteRow
+          : null;
+        revision = Math.max(revision, restoredRevision);
+        if (pendingPayload) {
+          const savedRow = await flushPendingPayloads();
+          if (savedRow) return { ...savedRow, superseded: true };
+        }
+        if (newerRemoteRow) {
+          onStatus('synced');
+          return { ...newerRemoteRow, superseded: true };
+        }
+        onStatus('synced');
+        return { ...data, revision, payload: normalize(data.payload) };
+      });
     }
 
     function queueSave(payload) {
@@ -159,7 +189,12 @@
             const nextRevision = Number(event.new.revision) || 0;
             if (nextRevision <= revision) return;
             revision = nextRevision;
-            onRemote({ payload: normalize(event.new.payload), revision });
+            latestRemoteRow = {
+              ...event.new,
+              payload: normalize(event.new.payload),
+              revision,
+            };
+            onRemote(latestRemoteRow);
           },
         )
         .subscribe();

@@ -40,6 +40,10 @@ async function openCloudPage({
   cachedPayload = null,
   failInitialLoad = false,
   cloudPayload = makeCloudState(),
+  history = [],
+  failRestore = false,
+  supersedingPayload = null,
+  holdRestore = false,
 } = {}) {
   const browser = await chromium.launch({
     headless: true,
@@ -52,22 +56,34 @@ async function openCloudPage({
     initialPayload,
     cachedState,
     shouldFailInitialLoad,
+    initialHistory,
+    shouldFailRestore,
+    restoreSupersedingPayload,
+    shouldHoldRestore,
   }) => {
     let signedIn = isAuthenticated;
     let nextLoginError = null;
     let failNextLoad = shouldFailInitialLoad;
     let failNextSave = false;
+    let failNextRestore = shouldFailRestore;
+    let failNextHistoryRead = false;
     let loadCalls = 0;
     let authCallback = null;
     let remoteCallback = null;
+    let releaseRestore = null;
+    const restoreGate = shouldHoldRestore
+      ? new Promise((resolve) => { releaseRestore = resolve; })
+      : null;
+    const historyRows = [...initialHistory];
     const record = {
       payload: initialPayload,
-      revision: 1,
+      revision: Math.max(1, ...historyRows.map((row) => Number(row.revision) || 0)),
       updated_at: '2026-08-08T00:00:00.000Z',
     };
     const savedPayloads = [];
     const uploadCalls = [];
     const removeCalls = [];
+    const restoreCalls = [];
 
     if (cachedState) {
       localStorage.setItem('youxuepai-leaderboard-state-v2', JSON.stringify(cachedState));
@@ -80,7 +96,21 @@ async function openCloudPage({
       recordId: 'main',
     });
     globalThis.LeaderboardCloudClientOverride = {
-      from() {
+      from(table) {
+        if (table === 'leaderboard_state_history') {
+          return {
+            select() { return this; },
+            eq() { return this; },
+            order() { return this; },
+            async limit() {
+              if (failNextHistoryRead) {
+                failNextHistoryRead = false;
+                return { data: null, error: new Error('history unavailable') };
+              }
+              return { data: historyRows, error: null };
+            },
+          };
+        }
         return {
           select() { return this; },
           eq() { return this; },
@@ -95,6 +125,41 @@ async function openCloudPage({
         };
       },
       rpc(name, params) {
+        if (name === 'restore_leaderboard_snapshot') {
+          const snapshotId = Number(params.p_snapshot_id);
+          restoreCalls.push(snapshotId);
+          return {
+            async single() {
+              if (restoreGate) await restoreGate;
+              if (failNextRestore) {
+                failNextRestore = false;
+                return { data: null, error: new Error('restore unavailable') };
+              }
+              const snapshot = historyRows.find((row) => Number(row.id) === snapshotId);
+              const restoredRecord = {
+                payload: snapshot?.payload || record.payload,
+                revision: record.revision + 1,
+                updated_at: '2026-08-11T06:00:00.000Z',
+              };
+              historyRows.unshift({
+                id: Math.max(0, ...historyRows.map((row) => Number(row.id) || 0)) + 1,
+                revision: restoredRecord.revision,
+                payload: restoredRecord.payload,
+                created_at: restoredRecord.updated_at,
+              });
+              Object.assign(record, restoredRecord);
+              if (restoreSupersedingPayload) {
+                Object.assign(record, {
+                  payload: restoreSupersedingPayload,
+                  revision: restoredRecord.revision + 1,
+                  updated_at: '2026-08-11T06:00:01.000Z',
+                });
+                remoteCallback?.({ new: { ...record } });
+              }
+              return { data: restoredRecord, error: null };
+            },
+          };
+        }
         savedPayloads.push(params.p_payload);
         return {
           async single() {
@@ -104,6 +169,13 @@ async function openCloudPage({
             }
             record.payload = params.p_payload;
             record.revision += 1;
+            record.updated_at = '2026-08-11T05:30:00.000Z';
+            historyRows.unshift({
+              id: Math.max(0, ...historyRows.map((row) => Number(row.id) || 0)) + 1,
+              revision: record.revision,
+              payload: record.payload,
+              created_at: record.updated_at,
+            });
             return { data: record, error: null };
           },
         };
@@ -169,6 +241,8 @@ async function openCloudPage({
       rejectNextLogin(message) { nextLoginError = message; },
       failNextLoad() { failNextLoad = true; },
       failNextSave() { failNextSave = true; },
+      failNextRestore() { failNextRestore = true; },
+      failNextHistoryRead() { failNextHistoryRead = true; },
       setRecord(payload, revision) {
         record.payload = payload;
         record.revision = revision;
@@ -187,12 +261,18 @@ async function openCloudPage({
       getSavedPayloads() { return savedPayloads; },
       getUploadCalls() { return uploadCalls; },
       getRemoveCalls() { return removeCalls; },
+      getRestoreCalls() { return restoreCalls; },
+      releaseRestore() { releaseRestore?.(); },
     };
   }, {
     isAuthenticated: authenticated,
     initialPayload: cloudPayload,
     cachedState: cachedPayload,
     shouldFailInitialLoad: failInitialLoad,
+    initialHistory: history,
+    shouldFailRestore: failRestore,
+    restoreSupersedingPayload: supersedingPayload,
+    shouldHoldRestore: holdRestore,
   });
 
   try {
@@ -226,6 +306,9 @@ async function openCloudPage({
       getSavedPayloads: () => page.evaluate(() => globalThis.__fakeCloudControl.getSavedPayloads()),
       getUploadCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getUploadCalls()),
       getRemoveCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getRemoveCalls()),
+      getRestoreCalls: () => page.evaluate(() => globalThis.__fakeCloudControl.getRestoreCalls()),
+      releaseRestore: () => page.evaluate(() => globalThis.__fakeCloudControl.releaseRestore()),
+      failNextHistoryRead: () => page.evaluate(() => globalThis.__fakeCloudControl.failNextHistoryRead()),
     },
   };
 }
@@ -332,10 +415,11 @@ test('expired authentication closes editing and preserves unsynced data', async 
 
   try {
     await page.click('#edit-button');
+    await fakeCloud.failNextSave();
     const points = page.locator('input[data-student-id="s1"][data-field="totalPoints"]');
     await points.fill('300');
     await points.dispatchEvent('change');
-    await page.waitForFunction(() => localStorage.getItem('youxuepai-leaderboard-pending-v1') !== null);
+    await page.waitForSelector('#cloud-status.failed');
     await fakeCloud.emitAuth('TOKEN_REFRESH_FAILED');
 
     assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'true');
@@ -344,6 +428,313 @@ test('expired authentication closes editing and preserves unsynced data', async 
       await page.evaluate(() => localStorage.getItem('youxuepai-leaderboard-pending-v1')),
       null,
     );
+  } finally {
+    await browser.close();
+  }
+});
+
+test('an authenticated admin can inspect and restore a complete cloud snapshot', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.waitForSelector('#history-dialog[open]');
+    assert.equal(await page.locator('.history-version').count(), 2);
+    assert.equal(await page.locator('[data-history-id="9"]').isDisabled(), true);
+
+    await page.click('[data-history-id="8"]');
+    await page.waitForSelector('#history-restore-dialog[open]');
+    await page.click('#history-restore-confirm');
+    await page.waitForFunction(() => !document.querySelector('#history-restore-dialog')?.open);
+
+    assert.deepEqual(await fakeCloud.getRestoreCalls(), [8]);
+    assert.match(await page.locator('#rank-list').textContent(), /300/);
+    assert.match(await page.locator('#toast').textContent(), /已恢复到 v8/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a failed history restore preserves the current website state and can be retried', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    failRestore: true,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.click('[data-history-id="8"]');
+    await page.click('#history-restore-confirm');
+    await page.waitForFunction(() => /恢复失败/.test(document.querySelector('#history-confirm-copy')?.textContent || ''));
+
+    assert.deepEqual(await fakeCloud.getRestoreCalls(), [8]);
+    assert.equal(await page.locator('#history-restore-dialog').getAttribute('open'), '');
+    assert.match(await page.locator('#rank-list').textContent(), /900/);
+    assert.equal(await page.locator('#history-restore-confirm').isDisabled(), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('history marks the revision created by the latest local save as current', async () => {
+  const currentPayload = makeCloudState();
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    history: [
+      { id: 1, revision: 1, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    const notebook = page.locator('input[data-student-id="s1"][data-field="notebook"]');
+    await notebook.fill('5');
+    await notebook.dispatchEvent('change');
+    await page.waitForFunction(() => globalThis.__fakeCloudControl.getSavedPayloads().length === 1);
+    await page.click('#history-open');
+
+    assert.equal(await page.locator('[data-history-id="2"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-history-id="1"]').isDisabled(), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('opening history flushes an edit that is still waiting for the debounce timer', async () => {
+  const currentPayload = makeCloudState();
+  const { browser, page } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    history: [
+      { id: 1, revision: 1, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    const notebook = page.locator('input[data-student-id="s1"][data-field="notebook"]');
+    await notebook.fill('5');
+    await notebook.dispatchEvent('change');
+    await page.click('#history-open');
+
+    assert.equal(await page.locator('[data-history-id="2"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-history-id="1"]').isDisabled(), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a restore in progress cannot be dismissed with Cancel or Escape', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    holdRestore: true,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.click('[data-history-id="8"]');
+    await page.click('#history-restore-confirm');
+    await page.waitForFunction(() => globalThis.__fakeCloudControl.getRestoreCalls().length === 1);
+
+    assert.equal(await page.locator('#history-restore-cancel').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#history-restore-dialog').getAttribute('open'), '');
+
+    await fakeCloud.releaseRestore();
+    await page.waitForFunction(() => !document.querySelector('#history-restore-dialog')?.open);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Escape closes only restore confirmation and returns focus to its version', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const { browser, page } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.click('[data-history-id="8"]');
+    await page.keyboard.press('Escape');
+
+    assert.equal(await page.locator('#history-restore-dialog').getAttribute('open'), null);
+    assert.equal(await page.locator('#history-dialog').getAttribute('open'), '');
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.getAttribute('data-history-id')),
+      '8',
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
+test('history summaries identify the rank-up audio stored in each version', async () => {
+  const payload = makeCloudState(900);
+  payload.rankupSound = {
+    enabled: true,
+    source: 'upload',
+    style: 'horn',
+    url: 'https://test.supabase.co/storage/v1/object/public/rankup-audio/main/victory.mp3',
+    name: '冲刺号角',
+    storagePath: 'main/victory.mp3',
+    duration: 20,
+    clipStart: 3,
+    clipDuration: 5.2,
+  };
+  const { browser, page } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: payload,
+    history: [
+      { id: 9, revision: 9, payload, created_at: '2026-08-11T05:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+
+    assert.match(await page.locator('.history-version').textContent(), /音效：冲刺号角/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a restored state remains successful when refreshing the history list fails', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.click('[data-history-id="8"]');
+    await fakeCloud.failNextHistoryRead();
+    await page.click('#history-restore-confirm');
+    await page.waitForFunction(() => !document.querySelector('#history-restore-dialog')?.open);
+
+    assert.match(await page.locator('#rank-list').textContent(), /300/);
+    assert.match(await page.locator('#toast').textContent(), /已恢复到 v8/);
+    assert.match(await page.locator('#history-list').textContent(), /恢复成功.*刷新失败/);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'history-close');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a restore overtaken by a newer cloud revision reports the conflict accurately', async () => {
+  const oldPayload = makeCloudState(300);
+  const currentPayload = makeCloudState(900);
+  const newerPayload = makeCloudState(1200);
+  const { browser, page } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: currentPayload,
+    supersedingPayload: newerPayload,
+    history: [
+      { id: 9, revision: 9, payload: currentPayload, created_at: '2026-08-11T05:00:00Z' },
+      { id: 8, revision: 8, payload: oldPayload, created_at: '2026-08-11T04:00:00Z' },
+    ],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await page.click('[data-history-id="8"]');
+    await page.click('#history-restore-confirm');
+    await page.waitForFunction(() => !document.querySelector('#history-restore-dialog')?.open);
+
+    assert.match(await page.locator('#rank-list').textContent(), /1200/);
+    assert.match(await page.locator('#toast').textContent(), /云端已有更新.*最新版本/);
+    assert.doesNotMatch(await page.locator('#toast').textContent(), /已恢复到 v8/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('signing out of an open history dialog returns focus outside the hidden drawer', async () => {
+  const payload = makeCloudState();
+  const { browser, page, fakeCloud } = await openCloudPage({
+    authenticated: true,
+    cloudPayload: payload,
+    history: [{ id: 1, revision: 1, payload, created_at: '2026-08-11T05:00:00Z' }],
+  });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#history-open');
+    await fakeCloud.emitAuth('SIGNED_OUT');
+
+    assert.equal(await page.locator('#history-dialog').getAttribute('open'), null);
+    assert.equal(await page.locator('#edit-drawer').getAttribute('aria-hidden'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'edit-button');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('changing a cloud rank-up sound keeps the old upload available to history', async () => {
+  const payload = makeCloudState();
+  payload.rankupSound = {
+    enabled: true,
+    source: 'upload',
+    style: 'horn',
+    url: 'https://test.supabase.co/storage/v1/object/public/rankup-audio/main/old.mp3',
+    name: '旧晋级音乐',
+    storagePath: 'main/old.mp3',
+    duration: 12,
+    clipStart: 0,
+    clipDuration: 5.2,
+  };
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true, cloudPayload: payload });
+
+  try {
+    await page.click('#edit-button');
+    await page.click('#rankup-sound-source-builtin');
+    await page.selectOption('#rankup-sound-style', 'crystal');
+    await page.waitForFunction(() => globalThis.__fakeCloudControl.getSavedPayloads().length === 1);
+
+    assert.deepEqual(await fakeCloud.getRemoveCalls(), []);
   } finally {
     await browser.close();
   }
@@ -394,6 +785,47 @@ test('exposes an accessible history entry, list, and restore confirmation', () =
   assert.match(styles, /@media \(max-width: 600px\)/);
 });
 
+test('history keeps its footer visible and scrolls only the version list on short screens', async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  });
+
+  try {
+    const page = await browser.newPage({ viewport: { width: 320, height: 568 } });
+    await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
+    await page.evaluate(() => {
+      document.querySelector('#history-list').innerHTML = Array.from({ length: 12 }, (_, index) => `
+        <article class="history-version">
+          <span class="history-version-number">v${12 - index}</span>
+          <div><h3>自动保存</h3><p>1个班级 · 10名学员</p></div>
+          <button class="history-restore-button" type="button">恢复此版本</button>
+        </article>
+      `).join('');
+      document.querySelector('#history-dialog').showModal();
+    });
+
+    const layout = await page.evaluate(() => {
+      const dialog = document.querySelector('#history-dialog');
+      const list = document.querySelector('#history-list');
+      const footer = document.querySelector('.history-footer');
+      const noticeLabel = document.querySelector('.history-notice strong');
+      return {
+        dialogBottom: dialog.getBoundingClientRect().bottom,
+        footerBottom: footer.getBoundingClientRect().bottom,
+        listClientHeight: list.clientHeight,
+        listScrollHeight: list.scrollHeight,
+        noticeLabelWidth: noticeLabel.getBoundingClientRect().width,
+      };
+    });
+    assert.ok(layout.footerBottom <= layout.dialogBottom + 1);
+    assert.ok(layout.listScrollHeight > layout.listClientHeight);
+    assert.ok(layout.noticeLabelWidth > 40);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('keeps animated SVG emblems sharp and moves blur onto sibling glow layers', () => {
   const css = fs.readFileSync(stylesPath, 'utf8');
   const landingStart = css.indexOf('@keyframes rankup-emblem-land');
@@ -424,7 +856,7 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260810-cloud-audio-clip-v1`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260811-history-v1`), true, `${asset} must be versioned`);
   }
 });
 
@@ -457,7 +889,7 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /id="rankup-sound-enabled"/);
   assert.match(html, /固定 5\.2 秒/);
   assert.match(html, /所有设备同步/);
-  assert.match(html, /src\/rankup-sound\.js\?v=20260810-cloud-audio-clip-v1/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260811-history-v1/);
 });
 
 test('saves a selected 5.2 second URL clip into cloud app state', async () => {

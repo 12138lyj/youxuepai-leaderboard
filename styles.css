@@ -1402,6 +1402,15 @@ h1 {
   color: var(--ink);
 }
 
+.history-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-dialog:not([open]) {
+  display: none;
+}
+
 .history-header,
 .history-footer {
   display: flex;
@@ -1430,7 +1439,8 @@ h1 {
 }
 
 .history-list {
-  max-height: 490px;
+  min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   padding: 4px 20px;
 }
@@ -4038,6 +4048,15 @@ body:has(#rankup-overlay.is-active) {
 }
 
 @media (max-width: 600px) {
+  .history-notice {
+    display: grid;
+    gap: 5px;
+  }
+
+  .history-notice strong {
+    white-space: nowrap;
+  }
+
   .history-version {
     grid-template-columns: 54px minmax(0, 1fr);
     padding: 12px 0;
