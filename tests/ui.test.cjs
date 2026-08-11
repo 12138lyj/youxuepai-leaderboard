@@ -380,6 +380,20 @@ test('renders cloud status and password-only admin dialog', async () => {
   }
 });
 
+test('exposes an accessible history entry, list, and restore confirmation', () => {
+  const html = fs.readFileSync(indexPath, 'utf8');
+  const styles = fs.readFileSync(stylesPath, 'utf8');
+  for (const id of [
+    'history-open', 'history-count', 'history-dialog', 'history-list', 'history-close',
+    'history-restore-dialog', 'history-restore-cancel', 'history-restore-confirm',
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /最近50个完整版本/);
+  assert.match(html, /恢复会替换所有班级、积分、徽章和音效/);
+  assert.match(styles, /\.history-version/);
+  assert.match(styles, /\.history-restore-button/);
+  assert.match(styles, /@media \(max-width: 600px\)/);
+});
+
 test('keeps animated SVG emblems sharp and moves blur onto sibling glow layers', () => {
   const css = fs.readFileSync(stylesPath, 'utf8');
   const landingStart = css.indexOf('@keyframes rankup-emblem-land');

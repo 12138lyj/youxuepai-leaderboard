@@ -190,6 +190,17 @@
         </label>
       </div>
 
+      <section class="history-entry" aria-labelledby="history-entry-title">
+        <span class="history-entry-icon"><i data-lucide="history" aria-hidden="true"></i></span>
+        <div>
+          <h3 id="history-entry-title">历史版本</h3>
+          <p>每次保存自动留档，保留最近50个完整版本</p>
+        </div>
+        <button id="history-open" class="history-open-button" type="button">
+          查看历史 <span id="history-count" aria-label="历史版本数量">--</span>
+        </button>
+      </section>
+
       <section class="sound-settings" aria-labelledby="sound-settings-title">
         <div class="sound-settings-heading">
           <div>
@@ -305,6 +316,39 @@
       <button id="drawer-done" class="primary-action" type="button">完成编辑</button>
     </div>
   </aside>
+
+  <dialog id="history-dialog" class="history-dialog" aria-labelledby="history-title">
+    <div class="history-header">
+      <div>
+        <p class="eyebrow">云端自动留档</p>
+        <h2 id="history-title">历史版本</h2>
+      </div>
+      <button id="history-close" class="icon-button" type="button" aria-label="关闭历史版本">
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+    </div>
+    <p class="history-notice">
+      <strong>恢复提示</strong>
+      <span>恢复会替换所有班级、积分、徽章和音效。当前版本也已自动保留，可随时撤回。</span>
+    </p>
+    <div id="history-list" class="history-list" aria-live="polite"></div>
+    <div class="history-footer">
+      <span>按时间倒序显示</span>
+      <strong>自动保留最近50个</strong>
+    </div>
+  </dialog>
+
+  <dialog id="history-restore-dialog" class="history-confirm-dialog" aria-labelledby="history-confirm-title">
+    <div class="history-confirm-body">
+      <span class="history-confirm-icon"><i data-lucide="rotate-ccw" aria-hidden="true"></i></span>
+      <h2 id="history-confirm-title">恢复这个版本？</h2>
+      <p id="history-confirm-copy"></p>
+    </div>
+    <div class="admin-login-actions">
+      <button id="history-restore-cancel" class="secondary-action" type="button">取消</button>
+      <button id="history-restore-confirm" class="primary-action" type="button">确认恢复</button>
+    </div>
+  </dialog>
 
   <svg id="rank-emblem-sprite" class="rank-emblem-sprite" aria-hidden="true">
     <defs>
