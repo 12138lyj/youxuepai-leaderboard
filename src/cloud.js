@@ -37,6 +37,22 @@
       return { ...data, revision, payload: normalize(data.payload) };
     }
 
+    async function listHistory() {
+      const { data, error } = await client
+        .from('leaderboard_state_history')
+        .select('id,state_id,revision,payload,created_at')
+        .eq('state_id', recordId)
+        .order('revision', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data || []).map((row) => ({
+        ...row,
+        id: Number(row.id),
+        revision: Number(row.revision),
+        payload: normalize(row.payload),
+      }));
+    }
+
     async function signIn(password) {
       const result = await client.auth.signInWithPassword({ email: editorEmail, password });
       if (result.error) throw result.error;
@@ -103,6 +119,24 @@
       return { ...data, revision, payload: normalize(data.payload) };
     }
 
+    async function restoreSnapshot(snapshotId) {
+      const id = Number(snapshotId);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error('无效的历史版本');
+      await flush();
+      onStatus('saving');
+      const { data, error } = await client
+        .rpc('restore_leaderboard_snapshot', { p_snapshot_id: id })
+        .single();
+      if (error) {
+        onStatus('failed');
+        throw error;
+      }
+      pendingPayload = null;
+      revision = Number(data.revision) || revision;
+      onStatus('synced');
+      return { ...data, revision, payload: normalize(data.payload) };
+    }
+
     function queueSave(payload) {
       pendingPayload = normalize(payload);
       onStatus('saving');
@@ -148,17 +182,20 @@
 
     return {
       load,
+      listHistory,
       signIn,
       isAuthenticated,
       signOut,
       uploadRankupAudio,
       removeRankupAudio,
       flush,
+      restoreSnapshot,
       queueSave,
       subscribe,
       onAuthChange,
       destroy,
       getPendingPayload: () => pendingPayload,
+      getRevision: () => revision,
     };
   }
 

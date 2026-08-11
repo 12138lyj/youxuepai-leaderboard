@@ -16,8 +16,11 @@ function createFakeSupabase(options = {}) {
     revision: 1,
     updated_at: '2026-08-08T00:00:00.000Z',
   };
+  const history = options.history || [];
   const signInCalls = [];
   const savedPayloads = [];
+  const historyQueries = [];
+  const restoreCalls = [];
   const uploadCalls = [];
   const removeCalls = [];
   let failNextSave = Boolean(options.failFirstSave);
@@ -27,14 +30,46 @@ function createFakeSupabase(options = {}) {
 
   const client = {
     from(table) {
-      assert.equal(table, 'leaderboard_state');
+      if (table === 'leaderboard_state') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          async single() { return { data: record, error: null }; },
+        };
+      }
+      assert.equal(table, 'leaderboard_state_history');
+      const query = { stateId: null, ascending: null, limit: null };
+      historyQueries.push(query);
       return {
         select() { return this; },
-        eq() { return this; },
-        async single() { return { data: record, error: null }; },
+        eq(column, value) {
+          assert.equal(column, 'state_id');
+          query.stateId = value;
+          return this;
+        },
+        order(column, options) {
+          assert.equal(column, 'revision');
+          query.ascending = options.ascending;
+          return this;
+        },
+        limit(value) {
+          query.limit = value;
+          return this;
+        },
+        then(resolve, reject) {
+          return Promise.resolve({ data: history, error: null }).then(resolve, reject);
+        },
       };
     },
     rpc(name, params) {
+      if (name === 'restore_leaderboard_snapshot') {
+        restoreCalls.push(Number(params.p_snapshot_id));
+        return {
+          async single() {
+            return { data: options.restoredRecord || record, error: null };
+          },
+        };
+      }
       assert.equal(name, 'save_leaderboard_state');
       savedPayloads.push(params.p_payload);
       return {
@@ -113,6 +148,8 @@ function createFakeSupabase(options = {}) {
     client,
     signInCalls,
     savedPayloads,
+    historyQueries,
+    restoreCalls,
     uploadCalls,
     removeCalls,
     emitAuth(event) { authCallback?.(event); },
@@ -170,6 +207,45 @@ test('debounces saves and keeps only the newest payload', async () => {
 
   assert.deepEqual(fake.savedPayloads, [{ value: 2 }]);
   assert.equal(statuses.at(-1), 'synced');
+});
+
+test('lists the newest 50 normalized snapshots', async () => {
+  const fake = createFakeSupabase({ history: [
+    { id: 12, revision: 12, payload: { value: 12 }, created_at: '2026-08-11T04:00:00Z' },
+    { id: 11, revision: 11, payload: { value: 11 }, created_at: '2026-08-11T03:00:00Z' },
+  ] });
+  const cloud = Cloud.createCloudSync({
+    client: fake.client,
+    normalize: (payload) => ({ ...payload, normalized: true }),
+  });
+
+  const rows = await cloud.listHistory();
+
+  assert.deepEqual(rows.map(({ revision }) => revision), [12, 11]);
+  assert.equal(rows[0].payload.normalized, true);
+  assert.deepEqual(fake.historyQueries, [{ stateId: 'main', ascending: false, limit: 50 }]);
+});
+
+test('flushes pending edits before restoring and adopts the returned revision', async () => {
+  const fake = createFakeSupabase({ restoredRecord: {
+    payload: { value: 4 }, revision: 9, updated_at: '2026-08-11T05:00:00Z',
+  } });
+  const cloud = Cloud.createCloudSync({ client: fake.client, normalize: (value) => value });
+  cloud.queueSave({ value: 8 });
+
+  const row = await cloud.restoreSnapshot(44);
+
+  assert.deepEqual(fake.savedPayloads, [{ value: 8 }]);
+  assert.deepEqual(fake.restoreCalls, [44]);
+  assert.equal(row.revision, 9);
+  assert.equal(cloud.getRevision(), 9);
+});
+
+test('rejects invalid snapshot ids without calling the cloud', async () => {
+  const fake = createFakeSupabase();
+  const cloud = Cloud.createCloudSync({ client: fake.client, normalize: (value) => value });
+  await assert.rejects(cloud.restoreSnapshot('bad'), /无效的历史版本/);
+  assert.deepEqual(fake.restoreCalls, []);
 });
 
 test('keeps pending data after a failed save and retries it', async () => {
