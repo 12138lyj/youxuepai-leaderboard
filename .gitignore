@@ -22,6 +22,15 @@ src/*
 tests/*
 !tests/rank-rules.test.cjs
 !tests/rankup-sound.test.cjs
+!tests/history-migration.test.cjs
+
+!supabase/
+supabase/*
+!supabase/migrations/
+supabase/migrations/*
+!supabase/migrations/2026080801_leaderboard_state.sql
+!supabase/migrations/2026081001_rankup_audio_storage.sql
+!supabase/migrations/2026081101_leaderboard_history.sql
 
 !vendor/
 vendor/*
