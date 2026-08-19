@@ -5,9 +5,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function createStateApi() {
   const scoreFields = ['notebook', 'errorBook', 'draft', 'module', 'totalPoints'];
   const badgeFields = ['notebook', 'errorBook', 'draft', 'module'];
+  const customScoreFields = ['punctuality', 'afterClassTest', 'homework', 'participation', 'preview'];
+  const customBadgeFields = [...customScoreFields];
   const badgeColors = new Set(['white', 'yellow', 'purple']);
   const badgeColorOrder = { white: 0, yellow: 1, purple: 2 };
   const DEFAULT_COLLECTIVE_GOAL = 15000;
+  const DEFAULT_CUSTOM_COURSE_NAME = '成长积分课程';
   const DEFAULT_RANKUP_SOUND = Object.freeze({
     enabled: true,
     source: 'builtin',
@@ -137,10 +140,34 @@
     return records;
   }
 
+  function normalizeCustomLessonRecords(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const records = {};
+    for (const [lessonKey, students] of Object.entries(value)) {
+      const lesson = Math.max(1, normalizeScore(lessonKey));
+      if (!students || typeof students !== 'object' || Array.isArray(students)) continue;
+      records[String(lesson)] = Object.fromEntries(Object.entries(students).flatMap(([studentId, scores]) => {
+        if (!scores || typeof scores !== 'object' || Array.isArray(scores)) return [];
+        return [[String(studentId), Object.fromEntries(customScoreFields.map((field) => (
+          [field, normalizeScore(scores[field])]
+        )))]];
+      }));
+    }
+    return records;
+  }
+
   function cloneLessonRecords(records) {
     return Object.fromEntries(Object.entries(records || {}).map(([lesson, students]) => [
       String(lesson), Object.fromEntries(Object.entries(students || {}).map(([studentId, scores]) => [
         String(studentId), Object.fromEntries(badgeFields.map((field) => [field, normalizeScore(scores?.[field])])),
+      ])),
+    ]));
+  }
+
+  function cloneCustomLessonRecords(records) {
+    return Object.fromEntries(Object.entries(records || {}).map(([lesson, students]) => [
+      String(lesson), Object.fromEntries(Object.entries(students || {}).map(([studentId, scores]) => [
+        String(studentId), Object.fromEntries(customScoreFields.map((field) => [field, normalizeScore(scores?.[field])])),
       ])),
     ]));
   }
@@ -153,6 +180,14 @@
     }, 0);
   }
 
+  function sumCustomRecordScores(records, studentId) {
+    return Object.values(records || {}).reduce((total, lessonStudents) => {
+      const scores = lessonStudents?.[String(studentId)];
+      if (!scores) return total;
+      return total + customScoreFields.reduce((sum, field) => sum + normalizeScore(scores[field]), 0);
+    }, 0);
+  }
+
   function getStudentTotalPoints(classroom, studentId) {
     const student = classroom?.students?.find((candidate) => String(candidate.id) === String(studentId));
     if (!student) return 0;
@@ -161,10 +196,38 @@
     return normalizeScore(classroom?.carryoverPoints?.[String(student.id)]) + sumRecordScores(records, student.id);
   }
 
+  function getCustomStudentScores(classroom, studentId) {
+    const current = classroom?.customLessonRecords?.[String(classroom.lesson)]?.[String(studentId)];
+    return Object.fromEntries(customScoreFields.map((field) => [field, normalizeScore(current?.[field])]));
+  }
+
+  function getCustomStudentTotalPoints(classroom, studentId) {
+    const student = classroom?.students?.find((candidate) => String(candidate.id) === String(studentId));
+    if (!student) return 0;
+    return normalizeScore(classroom?.customCarryoverPoints?.[String(student.id)])
+      + sumCustomRecordScores(classroom?.customLessonRecords, student.id);
+  }
+
   function getModuleWinCounts(classroom, field) {
     if (!badgeFields.includes(field)) return {};
     const counts = Object.fromEntries((classroom?.students || []).map((student) => [String(student.id), 0]));
     for (const lessonStudents of Object.values(classroom?.lessonRecords || {})) {
+      const entries = Object.entries(lessonStudents || {})
+        .filter(([studentId]) => Object.prototype.hasOwnProperty.call(counts, String(studentId)))
+        .map(([studentId, scores]) => [String(studentId), normalizeScore(scores?.[field])]);
+      const maximum = Math.max(0, ...entries.map(([, score]) => score));
+      if (maximum <= 0) continue;
+      for (const [studentId, score] of entries) {
+        if (score === maximum) counts[studentId] += 1;
+      }
+    }
+    return counts;
+  }
+
+  function getCustomModuleWinCounts(classroom, field) {
+    if (!customBadgeFields.includes(field)) return {};
+    const counts = Object.fromEntries((classroom?.students || []).map((student) => [String(student.id), 0]));
+    for (const lessonStudents of Object.values(classroom?.customLessonRecords || {})) {
       const entries = Object.entries(lessonStudents || {})
         .filter(([studentId]) => Object.prototype.hasOwnProperty.call(counts, String(studentId)))
         .map(([studentId, scores]) => [String(studentId), normalizeScore(scores?.[field])]);
@@ -187,8 +250,21 @@
   function applyAutomaticBadges(classroom) {
     if (!classroom) return classroom;
     const winCounts = Object.fromEntries(badgeFields.map((field) => [field, getModuleWinCounts(classroom, field)]));
+    const customWinCounts = Object.fromEntries(customBadgeFields.map((field) => [field, getCustomModuleWinCounts(classroom, field)]));
+    const currentCustomBadges = classroom.customBadges && typeof classroom.customBadges === 'object'
+      && !Array.isArray(classroom.customBadges) ? classroom.customBadges : {};
+    const customBadges = Object.fromEntries((classroom.students || []).map((student) => [
+      String(student.id), Object.fromEntries(customBadgeFields.map((field) => {
+        const current = badgeColors.has(currentCustomBadges?.[String(student.id)]?.[field])
+          ? currentCustomBadges[String(student.id)][field]
+          : 'white';
+        const automatic = getAutomaticBadgeLevel(customWinCounts[field]?.[String(student.id)] || 0);
+        return [field, badgeColorOrder[current] >= badgeColorOrder[automatic] ? current : automatic];
+      })),
+    ]));
     return {
       ...classroom,
+      customBadges,
       students: (classroom.students || []).map((student) => ({
         ...student,
         badges: Object.fromEntries(badgeFields.map((field) => {
@@ -258,6 +334,11 @@
     lessonRecords[lesson][id] = Object.fromEntries(badgeFields.map((field) => [field, normalized[field]]));
     next.lessonRecords = lessonRecords;
     next.carryoverPoints = { ...(state.carryoverPoints || {}), [id]: normalizeScore(normalized.totalPoints) };
+    const customLessonRecords = cloneCustomLessonRecords(state.customLessonRecords);
+    customLessonRecords[lesson] ||= {};
+    customLessonRecords[lesson][id] = Object.fromEntries(customScoreFields.map((field) => [field, 0]));
+    next.customLessonRecords = customLessonRecords;
+    next.customCarryoverPoints = { ...(state.customCarryoverPoints || {}), [id]: 0 };
     return normalizeClassroom(next);
   }
 
@@ -295,11 +376,16 @@
     const previousScores = normalizePreviousScores(value?.previousScores);
     const honorEvents = normalizeHonorEvents(value?.honorEvents);
     const lessonRecords = normalizeLessonRecords(value?.lessonRecords);
+    const customLessonRecords = normalizeCustomLessonRecords(value?.customLessonRecords);
     const currentLessonKey = String(normalizedState.lesson);
     lessonRecords[currentLessonKey] ||= {};
+    customLessonRecords[currentLessonKey] ||= {};
     const explicitCarryover = value?.carryoverPoints && typeof value.carryoverPoints === 'object'
       && !Array.isArray(value.carryoverPoints) ? value.carryoverPoints : null;
+    const explicitCustomCarryover = value?.customCarryoverPoints && typeof value.customCarryoverPoints === 'object'
+      && !Array.isArray(value.customCarryoverPoints) ? value.customCarryoverPoints : null;
     const carryoverPoints = {};
+    const customCarryoverPoints = {};
     const students = normalizedState.students.map((student) => {
       const studentId = String(student.id);
       const suppliedRecord = lessonRecords[currentLessonKey][studentId];
@@ -312,6 +398,13 @@
       const legacyCarryover = normalizeScore(student.totalPoints) - recordTotal;
       carryoverPoints[studentId] = normalizeScore(explicitCarryover?.[studentId] ?? Math.max(0, legacyCarryover));
       student.totalPoints = carryoverPoints[studentId] + sumRecordScores(lessonRecords, studentId);
+      const suppliedCustomRecord = customLessonRecords[currentLessonKey][studentId];
+      if (!suppliedCustomRecord) {
+        customLessonRecords[currentLessonKey][studentId] = Object.fromEntries(customScoreFields.map((field) => [field, 0]));
+      } else {
+        for (const field of customScoreFields) suppliedCustomRecord[field] = normalizeScore(suppliedCustomRecord[field]);
+      }
+      customCarryoverPoints[studentId] = normalizeScore(explicitCustomCarryover?.[studentId]);
       return student;
     });
     const normalized = {
@@ -324,6 +417,9 @@
       honorEvents,
       lessonRecords,
       carryoverPoints,
+      customLessonRecords,
+      customCarryoverPoints,
+      customBadges: value?.customBadges,
     };
     return applyAutomaticBadges(normalized);
   }
@@ -338,6 +434,8 @@
       activeClassId: classroom.id,
       classes: [classroom],
       rankupSound: normalizeRankupSound(),
+      layoutMode: 'classic',
+      customCourseName: DEFAULT_CUSTOM_COURSE_NAME,
     };
   }
 
@@ -370,6 +468,8 @@
       activeClassId,
       classes,
       rankupSound: normalizeRankupSound(value.rankupSound),
+      layoutMode: value?.layoutMode === 'custom' ? 'custom' : 'classic',
+      customCourseName: normalizeCustomCourseName(value?.customCourseName),
     };
   }
 
@@ -406,12 +506,15 @@
     if (!classroom) return classroom;
     const lesson = Math.max(1, normalizeScore(nextLesson || 1));
     const lessonRecords = cloneLessonRecords(classroom.lessonRecords);
+    const customLessonRecords = cloneCustomLessonRecords(classroom.customLessonRecords);
     lessonRecords[String(lesson)] ||= {};
+    customLessonRecords[String(lesson)] ||= {};
     for (const student of classroom.students || []) {
       const studentId = String(student.id);
       lessonRecords[String(lesson)][studentId] ||= Object.fromEntries(badgeFields.map((field) => [field, 0]));
+      customLessonRecords[String(lesson)][studentId] ||= Object.fromEntries(customScoreFields.map((field) => [field, 0]));
     }
-    return normalizeClassroom({ ...classroom, lesson, lessonRecords });
+    return normalizeClassroom({ ...classroom, lesson, lessonRecords, customLessonRecords });
   }
 
   function updateStudentScore(classroom, id, field, value) {
@@ -432,6 +535,33 @@
     lessonRecords[lesson][studentId] ||= Object.fromEntries(badgeFields.map((candidate) => [candidate, student[candidate]]));
     lessonRecords[lesson][studentId][field] = nextValue;
     return normalizeClassroom({ ...classroom, lessonRecords });
+  }
+
+  function updateCustomStudentScore(classroom, id, field, value) {
+    if (!classroom || !customScoreFields.includes(field)) return classroom;
+    const studentId = String(id);
+    const student = classroom.students?.find((candidate) => String(candidate.id) === studentId);
+    if (!student) return classroom;
+    const lesson = String(classroom.lesson);
+    const customLessonRecords = cloneCustomLessonRecords(classroom.customLessonRecords);
+    customLessonRecords[lesson] ||= {};
+    customLessonRecords[lesson][studentId] ||= Object.fromEntries(customScoreFields.map((candidate) => [candidate, 0]));
+    customLessonRecords[lesson][studentId][field] = normalizeScore(value);
+    return normalizeClassroom({ ...classroom, customLessonRecords });
+  }
+
+  function updateCustomStudentBadge(classroom, id, field, level) {
+    if (!classroom || !customBadgeFields.includes(field) || !badgeColors.has(level)) return classroom;
+    const studentId = String(id);
+    if (!classroom.students?.some((student) => String(student.id) === studentId)) return classroom;
+    const customBadges = Object.fromEntries(Object.entries(classroom.customBadges || {}).map(([candidateId, badges]) => [
+      String(candidateId), Object.fromEntries(customBadgeFields.map((candidate) => [
+        candidate, badgeColors.has(badges?.[candidate]) ? badges[candidate] : 'white',
+      ])),
+    ]));
+    customBadges[studentId] ||= Object.fromEntries(customBadgeFields.map((candidate) => [candidate, 'white']));
+    customBadges[studentId][field] = level;
+    return normalizeClassroom({ ...classroom, customBadges });
   }
 
   function nextClassId(classes) {
@@ -477,6 +607,10 @@
     if (classId === appState?.activeClassId) return appState;
     if (!appState?.classes?.some((classroom) => classroom.id === classId)) return appState;
     return { ...appState, activeClassId: classId };
+  }
+
+  function normalizeCustomCourseName(value) {
+    return String(value || '').trim().slice(0, 30) || DEFAULT_CUSTOM_COURSE_NAME;
   }
 
   function renameClassroom(appState, id, name) {
@@ -570,27 +704,37 @@
   return {
     scoreFields,
     badgeFields,
+    customScoreFields,
+    customBadgeFields,
     DEFAULT_COLLECTIVE_GOAL,
+    DEFAULT_CUSTOM_COURSE_NAME,
     DEFAULT_RANKUP_SOUND,
     normalizeScore,
     normalizeRankupSound,
     normalizeStudent,
     normalizeState,
     normalizeLessonRecords,
+    normalizeCustomLessonRecords,
     sortStudents,
     updateStudent,
     updateStudentScore,
+    updateCustomStudentScore,
+    updateCustomStudentBadge,
     addStudent,
     removeStudent,
     createDefaultState,
     normalizeClassroom,
     normalizeAppState,
+    normalizeCustomCourseName,
     createDefaultAppState,
     getActiveClassroom,
     updateActiveClassroom,
     switchLesson,
     getStudentTotalPoints,
+    getCustomStudentScores,
+    getCustomStudentTotalPoints,
     getModuleWinCounts,
+    getCustomModuleWinCounts,
     getAutomaticBadgeLevel,
     applyAutomaticBadges,
     addClassroom,

@@ -9,6 +9,16 @@ const projectRoot = path.join(__dirname, '..');
 const indexPath = path.join(projectRoot, 'index.html');
 const stylesPath = path.join(projectRoot, 'styles.css');
 
+function resolveBrowserExecutable() {
+  const candidates = [
+    process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+    process.platform === 'win32' ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' : null,
+    process.platform === 'win32' ? 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' : null,
+    process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : null,
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || '';
+}
+
 function makeCloudState(points = 0) {
   return {
     activeClassId: 'class-1',
@@ -47,7 +57,7 @@ async function openCloudPage({
 } = {}) {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(3000);
@@ -751,7 +761,7 @@ test('renders cloud status and password-only admin dialog', async () => {
 
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -766,6 +776,44 @@ test('renders cloud status and password-only admin dialog', async () => {
     assert.ok(dialogBox.x >= 15);
     assert.ok(dialogBox.x + dialogBox.width <= 375);
     assert.equal(await page.locator('#admin-password').getAttribute('autocomplete'), 'current-password');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('switches to the custom course layout and saves its independent module scores', async () => {
+  const payload = makeCloudState(0);
+  payload.customCourseName = '成长挑战';
+  const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true, cloudPayload: payload });
+
+  try {
+    await page.click('[data-layout-mode="custom"]');
+    await page.locator('#custom-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#custom-course-title').innerText(), '成长挑战');
+    assert.equal(await page.locator('.custom-module-card').count(), 5);
+    assert.equal(await page.getByText('准时先锋', { exact: true }).count() > 0, true);
+    assert.equal(await page.getByText('测评达人', { exact: true }).count() > 0, true);
+    assert.equal(await page.getByText('作业之星', { exact: true }).count() > 0, true);
+    assert.equal(await page.getByText('课堂活力', { exact: true }).count() > 0, true);
+    assert.equal(await page.getByText('预习先行', { exact: true }).count() > 0, true);
+
+    await page.click('#edit-button');
+    const punctuality = page.locator('input[data-student-id="s1"][data-field="punctuality"]');
+    await punctuality.fill('12');
+    await punctuality.press('Tab');
+    await page.waitForTimeout(1000);
+    const savedPayloads = await fakeCloud.getSavedPayloads();
+    assert.ok(savedPayloads.length >= 1);
+    const saved = savedPayloads.at(-1);
+    assert.equal(saved.layoutMode, 'custom');
+    assert.equal(saved.customCourseName, '成长挑战');
+    assert.equal(saved.classes[0].customLessonRecords['1'].s1.punctuality, 12);
+    assert.equal(saved.classes[0].students[0].notebook, 0);
+
+    await page.click('#drawer-done');
+    await page.click('[data-layout-mode="classic"]');
+    await page.locator('#scores-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#custom-view').isVisible(), false);
   } finally {
     await browser.close();
   }
@@ -788,7 +836,7 @@ test('exposes an accessible history entry, list, and restore confirmation', () =
 test('history keeps its footer visible and scrolls only the version list on short screens', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1004,7 +1052,7 @@ test('header brand names 优学湃素养中心 beside the logo', async () => {
   assert.equal(fs.existsSync(indexPath), true, 'index.html must exist');
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1019,7 +1067,7 @@ test('header brand names 优学湃素养中心 beside the logo', async () => {
 test('uses the math pattern asset on the leaderboard background', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1035,7 +1083,7 @@ test('uses the math pattern asset on the leaderboard background', async () => {
 test('defines one distinct reusable SVG emblem for every rank', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1065,7 +1113,7 @@ test('defines one distinct reusable SVG emblem for every rank', async () => {
 test('renders the motivation band and academy shield badge contract', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1098,7 +1146,7 @@ test('renders the motivation band and academy shield badge contract', async () =
 test('shows the renamed lesson title and sums a new lesson into cumulative points', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1126,7 +1174,7 @@ test('editing points updates rank, plays the v2 promotion animation, and persist
   assert.equal(fs.existsSync(indexPath), true, 'index.html must exist');
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1227,7 +1275,7 @@ test('editing points updates rank, plays the v2 promotion animation, and persist
 test('reduced motion reveals promotion result without running effect layers', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1265,7 +1313,7 @@ test('editing a module badge updates only that badge and persists without rank p
   assert.equal(fs.existsSync(indexPath), true, 'index.html must exist');
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1327,7 +1375,7 @@ test('creates, switches, and persists independent classrooms', async () => {
   assert.equal(fs.existsSync(indexPath), true, 'index.html must exist');
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1368,7 +1416,7 @@ test('creates, switches, and persists independent classrooms', async () => {
 test('canceling student deletion preserves the student and the final student stays protected', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1413,7 +1461,7 @@ test('canceling student deletion preserves the student and the final student sta
 test('class rename submit, cancel, and deletion return focus to the switcher', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {
@@ -1470,7 +1518,7 @@ test('class rename submit, cancel, and deletion return focus to the switcher', a
 test('rank rows stay inside their container at tablet widths', async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
   });
 
   try {

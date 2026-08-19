@@ -36,6 +36,17 @@
       </div>
     </div>
 
+    <div id="layout-switcher" class="layout-switcher" role="group" aria-label="页面排版">
+      <button class="layout-mode-button is-active" type="button" data-layout-mode="classic" aria-pressed="true">
+        <i data-lucide="layout-dashboard" aria-hidden="true"></i>
+        <span>四项习惯</span>
+      </button>
+      <button class="layout-mode-button" type="button" data-layout-mode="custom" aria-pressed="false">
+        <i data-lucide="sparkles" aria-hidden="true"></i>
+        <span data-custom-course-label>成长积分课程</span>
+      </button>
+    </div>
+
     <nav class="view-switcher" aria-label="排行榜视图">
       <button class="view-tab is-active" type="button" data-view="scores" aria-pressed="true">
         <i data-lucide="layout-dashboard" aria-hidden="true"></i>
@@ -115,6 +126,48 @@
       </section>
     </section>
 
+    <section id="custom-view" class="view-panel custom-course-view" aria-labelledby="custom-course-title" hidden>
+      <div class="page-heading custom-course-heading">
+        <div>
+          <p class="eyebrow">五项成长指标 · 每节课即时更新</p>
+          <h1 id="custom-course-title">成长积分课程</h1>
+          <p id="custom-course-subtitle" class="subtitle"></p>
+        </div>
+        <div id="custom-summary-strip" class="summary-strip" aria-label="课程概览"></div>
+      </div>
+
+      <section class="custom-hero-band" aria-label="课程总积分">
+        <div class="custom-hero-copy">
+          <span class="custom-hero-kicker">本节课成长总分</span>
+          <strong id="custom-total-points">0</strong>
+          <span id="custom-total-caption">五项评分全部计入总分与段位</span>
+        </div>
+        <div id="custom-top-student" class="custom-top-student"></div>
+      </section>
+
+      <section aria-labelledby="custom-modules-title">
+        <div class="section-heading">
+          <h2 id="custom-modules-title" class="section-title">
+            <i data-lucide="trophy" aria-hidden="true"></i>
+            五项成长排行
+          </h2>
+          <p>同分时按姓名排序 · 每项均计入总分、段位和徽章</p>
+        </div>
+        <div id="custom-module-grid" class="custom-module-grid"></div>
+      </section>
+
+      <section aria-labelledby="custom-students-title">
+        <div class="section-heading">
+          <h2 id="custom-students-title" class="section-title">
+            <i data-lucide="users-round" aria-hidden="true"></i>
+            学员成长总览
+          </h2>
+          <p>累计分数实时计算当前段位</p>
+        </div>
+        <div id="custom-student-table" class="custom-student-table"></div>
+      </section>
+    </section>
+
     <section id="ranks-view" class="view-panel" aria-labelledby="ranks-title" hidden>
       <div class="page-heading rank-page-heading">
         <div>
@@ -187,6 +240,10 @@
         <label class="lesson-field">
           <span>全班共同目标</span>
           <input id="collective-goal-input" type="number" min="1" step="100" inputmode="numeric">
+        </label>
+        <label class="lesson-field custom-course-name-field">
+          <span>自定义课程名称</span>
+          <input id="custom-course-name" type="text" maxlength="30" autocomplete="off">
         </label>
       </div>
 

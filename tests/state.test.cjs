@@ -366,6 +366,46 @@ test('stores lesson records and derives cumulative points across lessons', () =>
   assert.equal(stateApi.getActiveClassroom(parsed).lessonRecords['1'].a.notebook, 20);
 });
 
+test('stores custom course scores separately and derives custom cumulative points', () => {
+  let app = stateApi.normalizeAppState({
+    layoutMode: 'custom',
+    customCourseName: '成长挑战',
+    activeClassId: 'class-1',
+    classes: [{ id: 'class-1', lesson: 1, students: [{ id: 'a', name: '甲' }] }],
+  });
+  let classroom = stateApi.getActiveClassroom(app);
+  classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'punctuality', 8);
+  classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'homework', 12);
+  assert.deepEqual(stateApi.getCustomStudentScores(classroom, 'a'), {
+    punctuality: 8,
+    afterClassTest: 0,
+    homework: 12,
+    participation: 0,
+    preview: 0,
+  });
+  assert.equal(stateApi.getCustomStudentTotalPoints(classroom, 'a'), 20);
+  classroom = stateApi.switchLesson(classroom, 2);
+  classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'preview', 5);
+  assert.equal(stateApi.getCustomStudentTotalPoints(classroom, 'a'), 25);
+  assert.equal(classroom.students[0].totalPoints, 0);
+  app = stateApi.updateActiveClassroom(app, () => classroom);
+  const parsed = stateApi.parseAppState(stateApi.serializeAppState(app), stateApi.createDefaultAppState());
+  assert.equal(parsed.layoutMode, 'custom');
+  assert.equal(parsed.customCourseName, '成长挑战');
+  assert.equal(stateApi.getCustomStudentTotalPoints(stateApi.getActiveClassroom(parsed), 'a'), 25);
+});
+
+test('keeps custom badges independent from the classic badge set', () => {
+  let classroom = stateApi.normalizeClassroom({
+    id: 'class-1',
+    lesson: 1,
+    students: [{ id: 'a', name: '甲', badges: { notebook: 'purple' } }],
+  });
+  classroom = stateApi.updateCustomStudentBadge(classroom, 'a', 'preview', 'yellow');
+  assert.equal(classroom.customBadges.a.preview, 'yellow');
+  assert.equal(classroom.students[0].badges.notebook, 'purple');
+});
+
 test('counts independent module winners and upgrades badges after three and six wins', () => {
   const classroom = stateApi.normalizeClassroom({
     id: 'class-1',

@@ -28,6 +28,13 @@
     { field: 'draft', label: '草稿本', icon: 'list-ordered', tone: 'green', honor: '草稿达人' },
     { field: 'module', label: '模块', icon: 'route', tone: 'coral', honor: '模块先锋' },
   ];
+  const customCategories = [
+    { field: 'punctuality', label: '准时先锋', icon: 'clock-3', tone: 'yellow', honor: '准时先锋', color: '#d39a00', soft: '#fff4c9', deep: '#8c6500' },
+    { field: 'afterClassTest', label: '测评达人', icon: 'clipboard-check', tone: 'purple', honor: '测评达人', color: '#a487db', soft: '#f0e9fb', deep: '#69509f' },
+    { field: 'homework', label: '作业之星', icon: 'notebook-pen', tone: 'green', honor: '作业之星', color: '#49ad7f', soft: '#e6f5ed', deep: '#267c59' },
+    { field: 'participation', label: '课堂活力', icon: 'messages-square', tone: 'coral', honor: '课堂活力', color: '#ef746a', soft: '#fdeae7', deep: '#a5443c' },
+    { field: 'preview', label: '预习先行', icon: 'book-open-check', tone: 'blue', honor: '预习先行', color: '#6b86d7', soft: '#edf1ff', deep: '#3d5eae' },
+  ];
   const inputLabels = {
     name: '姓名',
     notebook: '笔记本',
@@ -73,6 +80,18 @@
     collectiveProgressFill: document.querySelector('#collective-progress-fill'),
     progressStar: document.querySelector('#progress-star'),
     latestHonor: document.querySelector('#latest-honor'),
+    layoutSwitcher: document.querySelector('#layout-switcher'),
+    layoutModeButtons: [...document.querySelectorAll('[data-layout-mode]')],
+    customView: document.querySelector('#custom-view'),
+    customCourseTitle: document.querySelector('#custom-course-title'),
+    customCourseSubtitle: document.querySelector('#custom-course-subtitle'),
+    customSummaryStrip: document.querySelector('#custom-summary-strip'),
+    customTotalPoints: document.querySelector('#custom-total-points'),
+    customTotalCaption: document.querySelector('#custom-total-caption'),
+    customTopStudent: document.querySelector('#custom-top-student'),
+    customModuleGrid: document.querySelector('#custom-module-grid'),
+    customStudentTable: document.querySelector('#custom-student-table'),
+    customCourseName: document.querySelector('#custom-course-name'),
     classSwitcher: document.querySelector('.class-switcher'),
     classSwitcherButton: document.querySelector('#class-switcher-button'),
     currentClassName: document.querySelector('#current-class-name'),
@@ -216,6 +235,7 @@
       showToast('浏览器无法保存本地备份');
     }
     renderDisplay();
+    setView(activeView);
     if (elements.drawer.classList.contains('is-open')) renderEditor();
     if (elements.historyDialog.open) renderHistory();
   }
@@ -337,8 +357,23 @@
     return State.getActiveClassroom(appState);
   }
 
+  function isCustomLayout() {
+    return appState.layoutMode === 'custom';
+  }
+
+  function currentCategories() {
+    return isCustomLayout() ? customCategories : categories;
+  }
+
   function studentTotalPoints(classroom, student) {
-    return State.getStudentTotalPoints(classroom, student.id);
+    return isCustomLayout()
+      ? State.getCustomStudentTotalPoints(classroom, student.id)
+      : State.getStudentTotalPoints(classroom, student.id);
+  }
+
+  function studentModuleScore(classroom, student, category, mode = isCustomLayout() ? 'custom' : 'classic') {
+    if (mode === 'custom') return State.getCustomStudentScores(classroom, student.id)[category.field] || 0;
+    return student[category.field] || 0;
   }
 
   function escapeHtml(value) {
@@ -388,9 +423,14 @@
     return `<span class="avatar tone-${avatarTone(student)}" aria-hidden="true">${escapeHtml(initial)}</span>`;
   }
 
-  function renderBadge(student, field) {
-    const category = categories.find((candidate) => candidate.field === field);
-    const level = badgeLevels.find((candidate) => candidate.level === student.badges?.[field])
+  function renderBadge(student, field, mode = isCustomLayout() ? 'custom' : 'classic') {
+    const categoryList = mode === 'custom' ? customCategories : categories;
+    const category = categoryList.find((candidate) => candidate.field === field);
+    const classroom = activeClassroom();
+    const storedLevel = mode === 'custom'
+      ? classroom?.customBadges?.[String(student.id)]?.[field]
+      : student.badges?.[field];
+    const level = badgeLevels.find((candidate) => candidate.level === storedLevel)
       || badgeLevels[0];
     const categoryLabel = category?.label || inputLabels[field] || '模块';
     return `
@@ -450,6 +490,19 @@
         </div>
       `;
     }).join('');
+  }
+
+  function renderLayoutSwitcher() {
+    const customName = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
+    document.querySelectorAll('[data-custom-course-label]').forEach((label) => {
+      label.textContent = customName;
+    });
+    elements.layoutModeButtons.forEach((button) => {
+      const isActive = button.dataset.layoutMode === appState.layoutMode;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+      button.title = isActive ? `当前排版：${button.textContent.trim()}` : `切换到${button.textContent.trim()}`;
+    });
   }
 
   function setClassMenuOpen(isOpen) {
@@ -623,13 +676,99 @@
     }).join('');
   }
 
+  function renderCustomCourse() {
+    const classroom = activeClassroom();
+    const courseName = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
+    const students = classroom.students || [];
+    const totalPoints = students.reduce((total, student) => total + State.getCustomStudentTotalPoints(classroom, student.id), 0);
+    const currentScores = students.flatMap((student) => customCategories.map((category) => (
+      State.getCustomStudentScores(classroom, student.id)[category.field] || 0
+    )));
+    const average = students.length ? (currentScores.reduce((sum, value) => sum + value, 0) / (students.length * customCategories.length)).toFixed(1) : '0.0';
+    const topStudent = [...students].sort((left, right) => (
+      State.getCustomStudentTotalPoints(classroom, right.id) - State.getCustomStudentTotalPoints(classroom, left.id)
+      || String(left.name).localeCompare(String(right.name), 'zh-CN')
+    ))[0];
+
+    elements.customCourseTitle.textContent = courseName;
+    elements.customCourseSubtitle.textContent = `第 ${classroom.lesson} 节课 · 五项评分即时更新 · 累计分数参与段位计算`;
+    elements.customSummaryStrip.innerHTML = `
+      <div class="summary-item">
+        <div class="summary-label">本节课课次</div>
+        <div class="summary-value">${classroom.lesson} <small>节</small></div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">参与 / 五项均分</div>
+        <div class="summary-value green">${students.length} <small>人 · ${average} 分</small></div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">评分模块</div>
+        <div class="summary-value purple">${customCategories.length} <small>项</small></div>
+      </div>
+    `;
+    elements.customTotalPoints.textContent = totalPoints.toLocaleString('zh-CN');
+    elements.customTotalCaption.textContent = `全班累计 ${totalPoints.toLocaleString('zh-CN')} 分 · 五项评分全部计入总分与段位`;
+    elements.customTopStudent.innerHTML = topStudent
+      ? `<div class="custom-top-student-label">当前累计领跑</div><div class="custom-top-student-name">${escapeHtml(topStudent.name)}</div><div class="custom-top-student-meta">${State.getCustomStudentTotalPoints(classroom, topStudent.id).toLocaleString('zh-CN')} 分 · ${Ranks.getRank(State.getCustomStudentTotalPoints(classroom, topStudent.id)).name}</div>`
+      : '<div class="custom-top-student-label">当前累计领跑</div><div class="custom-top-student-name">等待学员</div>';
+
+    elements.customModuleGrid.innerHTML = customCategories.map((category) => {
+      const ranked = [...students].sort((left, right) => (
+        studentModuleScore(classroom, right, category, 'custom') - studentModuleScore(classroom, left, category, 'custom')
+        || String(left.name).localeCompare(String(right.name), 'zh-CN')
+      ));
+      const rows = ranked.map((student, index) => `
+        <div class="custom-module-row">
+          <span class="custom-module-rank">${index + 1}</span>
+          <div class="custom-module-student">
+            ${studentAvatar(student)}
+            <span class="custom-module-student-name">${escapeHtml(student.name)}</span>
+          </div>
+          <span class="custom-module-score">${studentModuleScore(classroom, student, category, 'custom')}<small>分</small></span>
+        </div>
+      `).join('');
+      return `
+        <article class="custom-module-card" style="--module-color:${category.color};--module-soft:${category.soft};--module-deep:${category.deep}">
+          <header class="custom-module-card-header">
+            <span class="custom-module-icon"><i data-lucide="${category.icon}" aria-hidden="true"></i></span>
+            <span class="custom-module-name">${escapeHtml(category.label)}</span>
+          </header>
+          <div>${rows || '<p class="history-empty">暂无学员</p>'}</div>
+        </article>
+      `;
+    }).join('');
+
+    const sortedStudents = [...students].sort((left, right) => (
+      State.getCustomStudentTotalPoints(classroom, right.id) - State.getCustomStudentTotalPoints(classroom, left.id)
+      || String(left.name).localeCompare(String(right.name), 'zh-CN')
+    ));
+    const headerCells = ['学员', ...customCategories.map((category) => category.label), '累计 / 段位'];
+    elements.customStudentTable.innerHTML = `
+      <div class="custom-student-grid header">${headerCells.map((label) => `<span>${escapeHtml(label)}</span>`).join('')}</div>
+      ${sortedStudents.map((student) => {
+        const total = State.getCustomStudentTotalPoints(classroom, student.id);
+        const rank = Ranks.getRank(total);
+        const scores = State.getCustomStudentScores(classroom, student.id);
+        return `
+          <div class="custom-student-grid" data-custom-student="${escapeHtml(student.id)}">
+            <span class="custom-student-name-cell">${studentAvatar(student)}<span>${escapeHtml(student.name)}</span></span>
+            ${customCategories.map((category) => `<span class="custom-student-score">${scores[category.field] || 0}<small> 分</small></span>`).join('')}
+            <span class="custom-student-total">${total}<small> 分</small><span class="custom-student-rank">${renderRankEmblem(rank, 'rank-mini-emblem')}${escapeHtml(rank.shortName)}</span></span>
+          </div>
+        `;
+      }).join('')}
+    `;
+  }
+
   function renderDisplay() {
     renderClassSwitcher();
+    renderLayoutSwitcher();
     renderSummary();
     renderMotivation();
     renderWinners();
     renderBoards();
     renderRanks();
+    renderCustomCourse();
     refreshIcons();
   }
 
@@ -638,7 +777,9 @@
     const classrooms = payload.classes || [];
     const students = classrooms.reduce((total, classroom) => total + classroom.students.length, 0);
     const points = classrooms.reduce((total, classroom) => total + classroom.students.reduce(
-      (sum, student) => sum + studentTotalPoints(classroom, student), 0,
+      (sum, student) => sum + (payload.layoutMode === 'custom'
+        ? State.getCustomStudentTotalPoints(classroom, student.id)
+        : State.getStudentTotalPoints(classroom, student.id)), 0,
     ), 0);
     const sound = payload.rankupSound;
     const audio = !sound.enabled
@@ -652,6 +793,7 @@
       points,
       lesson: State.getActiveClassroom(payload)?.lesson || 0,
       audio,
+      courseName: payload.layoutMode === 'custom' ? payload.customCourseName : '四项习惯',
     };
   }
 
@@ -681,7 +823,7 @@
           <span class="history-version-number">v${Number(snapshot.revision)}</span>
           <div>
             <h3>${summary.lesson ? `第 ${summary.lesson} 节课 · ` : ''}${current ? '当前版本' : '自动保存'}</h3>
-            <p>${escapeHtml(formatHistoryDate(snapshot.created_at))} · ${summary.classes}个班级 · ${summary.students}名学员 · 总积分 ${summary.points.toLocaleString('zh-CN')} · 音效：${escapeHtml(summary.audio)}</p>
+            <p>${escapeHtml(formatHistoryDate(snapshot.created_at))} · ${escapeHtml(summary.courseName)} · ${summary.classes}个班级 · ${summary.students}名学员 · 总积分 ${summary.points.toLocaleString('zh-CN')} · 音效：${escapeHtml(summary.audio)}</p>
           </div>
           <button class="history-restore-button" type="button" data-history-id="${Number(snapshot.id)}" ${current ? 'disabled' : ''}>${current ? '当前版本' : '恢复此版本'}</button>
         </article>
@@ -841,16 +983,17 @@
     const classroom = activeClassroom();
     elements.lessonInput.value = String(classroom.lesson);
     elements.collectiveGoalInput.value = String(classroom.collectiveGoal);
+    elements.customCourseName.value = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
     renderSoundEditor();
     const disableDelete = classroom.students.length <= 1;
+    const scoreFieldsMarkup = isCustomLayout()
+      ? (student) => customCategories.map((category) => customEditorField(classroom, student, category)).join('')
+      : (student) => categories.map((category) => editorField(student, category.field, 'number')).join('');
     elements.editorList.innerHTML = classroom.students.map((student, index) => `
       <section class="student-editor" data-editor-row="${escapeHtml(student.id)}" aria-label="学员 ${index + 1}">
         ${editorField(student, 'name', 'text', 'name-field')}
-        ${editorField(student, 'notebook', 'number')}
-        ${editorField(student, 'errorBook', 'number')}
-        ${editorField(student, 'draft', 'number')}
-        ${editorField(student, 'module', 'number')}
-        ${editorField(student, 'totalPoints', 'number', 'total-field')}
+        ${scoreFieldsMarkup(student)}
+        ${isCustomLayout() ? customTotalEditorField(classroom, student) : editorField(student, 'totalPoints', 'number', 'total-field')}
         <button class="delete-student" type="button" data-delete-student="${escapeHtml(student.id)}" aria-label="删除${escapeHtml(student.name)}" title="删除学员" ${disableDelete ? 'disabled' : ''}>
           <i data-lucide="trash-2" aria-hidden="true"></i>
         </button>
@@ -870,19 +1013,44 @@
     `;
   }
 
+  function customEditorField(classroom, student, category) {
+    const scores = State.getCustomStudentScores(classroom, student.id);
+    return `
+      <label class="student-field">
+        <span>${escapeHtml(category.label)}</span>
+        <input type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(scores[category.field])}" data-student-id="${escapeHtml(student.id)}" data-field="${escapeHtml(category.field)}" aria-label="${escapeHtml(student.name)} ${escapeHtml(category.label)}">
+      </label>
+    `;
+  }
+
+  function customTotalEditorField(classroom, student) {
+    return `
+      <label class="student-field total-field">
+        <span>累计积分</span>
+        <input type="number" min="0" step="1" inputmode="numeric" value="${State.getCustomStudentTotalPoints(classroom, student.id)}" readonly aria-label="${escapeHtml(student.name)} 累计积分">
+      </label>
+    `;
+  }
+
   function renderBadgeSelectors(student) {
+    const badgeCategories = isCustomLayout() ? customCategories : categories;
+    const classroom = activeClassroom();
     return `
       <div class="badge-editor-grid" aria-label="${escapeHtml(student.name)}的模块徽章">
-        ${categories.map((category) => `
+        ${badgeCategories.map((category) => `
           <div class="badge-selector">
             <span class="badge-selector-label">${category.label}徽章</span>
             <div class="badge-segments" role="group" aria-label="${escapeHtml(student.name)}的${category.label}徽章等级">
               ${badgeLevels.map((level) => {
-                const isSelected = student.badges?.[category.field] === level.level;
+                const currentLevel = isCustomLayout()
+                  ? classroom.customBadges?.[String(student.id)]?.[category.field]
+                  : student.badges?.[category.field];
+                const isSelected = currentLevel === level.level;
                 return `
                   <button class="badge-choice ${level.level}" type="button"
                     data-badge-student-id="${escapeHtml(student.id)}"
                     data-badge-field="${category.field}"
+                    data-badge-mode="${isCustomLayout() ? 'custom' : 'classic'}"
                     data-badge-level="${level.level}"
                     aria-label="${escapeHtml(student.name)} ${category.label}徽章 ${level.fullLabel}"
                     aria-pressed="${isSelected}"
@@ -910,9 +1078,12 @@
       button.setAttribute('aria-pressed', String(isActive));
     });
     const scoresView = document.querySelector('#scores-view');
+    const customView = document.querySelector('#custom-view');
     const ranksView = document.querySelector('#ranks-view');
-    scoresView.classList.toggle('is-active', activeView === 'scores');
-    scoresView.hidden = activeView !== 'scores';
+    scoresView.classList.toggle('is-active', activeView === 'scores' && !isCustomLayout());
+    scoresView.hidden = activeView !== 'scores' || isCustomLayout();
+    customView.classList.toggle('is-active', activeView === 'scores' && isCustomLayout());
+    customView.hidden = activeView !== 'scores' || !isCustomLayout();
     ranksView.classList.toggle('is-active', activeView === 'ranks');
     ranksView.hidden = activeView !== 'ranks';
     if (location.hash !== `#${activeView}`) history.replaceState(null, '', `#${activeView}`);
@@ -970,6 +1141,16 @@
     if (elements.drawer.classList.contains('is-open')) renderEditor();
     elements.classSwitcherButton.focus();
     showToast(`已切换到 ${activeClassroom().name}`);
+  }
+
+  function switchLayoutMode(mode) {
+    if (!['classic', 'custom'].includes(mode) || mode === appState.layoutMode) return;
+    appState = State.normalizeAppState({ ...appState, layoutMode: mode });
+    persist();
+    renderDisplay();
+    setView(activeView);
+    if (elements.drawer.classList.contains('is-open')) renderEditor();
+    showToast(mode === 'custom' ? `已切换到${appState.customCourseName}` : '已切换到四项习惯排版');
   }
 
   function beginRenameClassroom(id) {
@@ -1059,6 +1240,20 @@
     showToast(`全班目标已更新为 ${nextGoal.toLocaleString('zh-CN')} 分`);
   }
 
+  function updateCustomCourseName(rawValue) {
+    if (!requireAdmin()) return;
+    const nextName = State.normalizeCustomCourseName(rawValue);
+    if (nextName === appState.customCourseName) {
+      elements.customCourseName.value = nextName;
+      return;
+    }
+    appState = State.normalizeAppState({ ...appState, customCourseName: nextName });
+    persist();
+    renderDisplay();
+    elements.customCourseName.value = nextName;
+    showToast(`课程名称已更新为 ${nextName}`);
+  }
+
   function updateStudentFromInput(input) {
     if (!requireAdmin()) return;
     const classroom = activeClassroom();
@@ -1066,25 +1261,36 @@
     if (!student) return;
     const field = input.dataset.field;
     const isName = field === 'name';
+    const isCustomScore = isCustomLayout() && State.customScoreFields.includes(field);
+    const currentValue = isCustomScore
+      ? State.getCustomStudentScores(classroom, student.id)[field]
+      : student[field];
     const nextValue = isName ? input.value.trim() : State.normalizeScore(input.value);
     if (isName && !nextValue) {
       input.value = student.name;
       showToast('姓名不能为空');
       return;
     }
-    if (student[field] === nextValue) {
-      input.value = String(student[field]);
+    if (!isName && currentValue === nextValue) {
+      input.value = String(currentValue);
       return;
     }
 
     const previousPoints = studentTotalPoints(classroom, student);
-    const isRankUpgrade = field === 'totalPoints' && Ranks.isRankUpgrade(previousPoints, nextValue);
+    let nextPoints = previousPoints;
+    let isRankUpgrade = false;
     appState = State.updateActiveClassroom(appState, (current) => {
-      const updatedClassroom = field === 'name'
+      const updatedClassroom = isName
         ? State.updateStudent(current, student.id, { name: nextValue })
-        : State.updateStudentScore(current, student.id, field, nextValue);
+        : isCustomScore
+          ? State.updateCustomStudentScore(current, student.id, field, nextValue)
+          : State.updateStudentScore(current, student.id, field, nextValue);
+      nextPoints = isCustomScore
+        ? State.getCustomStudentTotalPoints(updatedClassroom, student.id)
+        : State.getStudentTotalPoints(updatedClassroom, student.id);
+      isRankUpgrade = !isName && Ranks.isRankUpgrade(previousPoints, nextPoints);
       if (!isRankUpgrade) return updatedClassroom;
-      const nextRank = Ranks.getRank(nextValue);
+      const nextRank = Ranks.getRank(nextPoints);
       return {
         ...updatedClassroom,
         honorEvents: [{
@@ -1100,14 +1306,16 @@
     input.value = String(nextValue);
     if (field !== 'totalPoints') {
       const updatedStudent = activeClassroom().students.find((candidate) => candidate.id === student.id);
-      const totalInput = elements.editorList.querySelector(
-        `[data-student-id="${CSS.escape(student.id)}"][data-field="totalPoints"]`,
-      );
-      if (updatedStudent && totalInput) totalInput.value = String(studentTotalPoints(activeClassroom(), updatedStudent));
+      const totalInput = isCustomScore
+        ? elements.editorList.querySelector(`[data-student-id="${CSS.escape(student.id)}"][readonly]`)
+        : elements.editorList.querySelector(`[data-student-id="${CSS.escape(student.id)}"][data-field="totalPoints"]`);
+      if (updatedStudent && totalInput) {
+        totalInput.value = String(studentTotalPoints(activeClassroom(), updatedStudent));
+      }
     }
 
     if (isRankUpgrade) {
-      showRankUpgrade(student.name, previousPoints, nextValue);
+      showRankUpgrade(student.name, previousPoints, nextPoints);
     }
   }
 
@@ -1117,13 +1325,19 @@
     const student = classroom.students.find((candidate) => candidate.id === button.dataset.badgeStudentId);
     const field = button.dataset.badgeField;
     const level = button.dataset.badgeLevel;
-    const isKnownField = categories.some((category) => category.field === field);
+    const mode = button.dataset.badgeMode === 'custom' ? 'custom' : 'classic';
+    const badgeCategories = mode === 'custom' ? customCategories : categories;
+    const isKnownField = badgeCategories.some((category) => category.field === field);
     const isKnownLevel = badgeLevels.some((candidate) => candidate.level === level);
-    if (!student || !isKnownField || !isKnownLevel || student.badges?.[field] === level) return;
+    const currentLevel = mode === 'custom'
+      ? classroom.customBadges?.[String(student?.id)]?.[field]
+      : student?.badges?.[field];
+    if (!student || !isKnownField || !isKnownLevel || currentLevel === level) return;
 
-    const nextBadges = { ...student.badges, [field]: level };
     appState = State.updateActiveClassroom(appState, (current) => (
-      State.updateStudent(current, student.id, { badges: nextBadges })
+      mode === 'custom'
+        ? State.updateCustomStudentBadge(current, student.id, field, level)
+        : State.updateStudent(current, student.id, { badges: { ...student.badges, [field]: level } })
     ));
     persist();
     renderDisplay();
@@ -1483,6 +1697,9 @@
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.addEventListener('click', () => setView(button.dataset.view));
   });
+  elements.layoutModeButtons.forEach((button) => {
+    button.addEventListener('click', () => switchLayoutMode(button.dataset.layoutMode));
+  });
   elements.classSwitcherButton.addEventListener('click', () => {
     const isOpen = elements.classSwitcherButton.getAttribute('aria-expanded') === 'true';
     setClassMenuOpen(!isOpen);
@@ -1549,6 +1766,7 @@
   elements.drawerBackdrop.addEventListener('click', closeDrawer);
   elements.lessonInput.addEventListener('change', () => updateLesson(elements.lessonInput.value));
   elements.collectiveGoalInput.addEventListener('change', () => updateCollectiveGoal(elements.collectiveGoalInput.value));
+  elements.customCourseName.addEventListener('change', () => updateCustomCourseName(elements.customCourseName.value));
   elements.rankupSoundStyle.addEventListener('change', () => {
     void saveBuiltinSound(elements.rankupSoundStyle.value);
   });
