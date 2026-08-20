@@ -386,11 +386,17 @@ test('stores custom course scores separately and derives custom cumulative point
   classroom = stateApi.switchLesson(classroom, 2);
   classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'preview', 5);
   assert.equal(stateApi.getCustomStudentTotalPoints(classroom, 'a'), 25);
+  classroom = stateApi.updateCustomStudentTotalPoints(classroom, 'a', 40);
+  assert.equal(classroom.customCarryoverPoints.a, 15);
+  assert.equal(stateApi.getCustomStudentTotalPoints(classroom, 'a'), 40);
+  classroom = stateApi.switchLesson(classroom, 3);
+  classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'punctuality', 10);
+  assert.equal(stateApi.getCustomStudentTotalPoints(classroom, 'a'), 50);
   assert.equal(classroom.students[0].totalPoints, 0);
   app = stateApi.updateActiveClassroom(app, () => classroom);
   const parsed = stateApi.parseAppState(stateApi.serializeAppState(app), stateApi.createDefaultAppState());
   assert.equal(stateApi.getActiveClassroom(parsed).systemType, 'custom');
-  assert.equal(stateApi.getCustomStudentTotalPoints(stateApi.getActiveClassroom(parsed), 'a'), 25);
+  assert.equal(stateApi.getCustomStudentTotalPoints(stateApi.getActiveClassroom(parsed), 'a'), 50);
 });
 
 test('stores a system type per course and migrates the former global layout mode', () => {

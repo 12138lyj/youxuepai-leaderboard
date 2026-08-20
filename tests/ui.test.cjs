@@ -816,11 +816,30 @@ test('chooses a system when adding a course and switches systems by course', asy
     const punctuality = page.locator('input[data-student-id="class-2-student-1"][data-field="punctuality"]');
     await punctuality.fill('12');
     await punctuality.press('Tab');
-    assert.equal(
-      await page.locator('input[data-student-id="class-2-student-1"][readonly]').inputValue(),
-      '12',
-    );
+    const totalInput = page.locator('input[data-student-id="class-2-student-1"][data-field="totalPoints"]');
+    assert.equal(await totalInput.getAttribute('readonly'), null);
+    assert.equal(await totalInput.inputValue(), '12');
     assert.match(await page.locator('#custom-collective-goal-copy').innerText(), /^12 \/ 15,000 分$/);
+
+    await page.locator('#lesson-input').fill('2');
+    await page.locator('#lesson-input').dispatchEvent('change');
+    const homework = page.locator('input[data-student-id="class-2-student-1"][data-field="homework"]');
+    await homework.fill('8');
+    await homework.dispatchEvent('change');
+    assert.equal(await totalInput.inputValue(), '20');
+
+    await totalInput.fill('30');
+    await totalInput.dispatchEvent('change');
+    assert.equal(await totalInput.inputValue(), '30');
+
+    await page.locator('#lesson-input').fill('3');
+    await page.locator('#lesson-input').dispatchEvent('change');
+    const preview = page.locator('input[data-student-id="class-2-student-1"][data-field="preview"]');
+    await preview.fill('5');
+    await preview.dispatchEvent('change');
+    assert.equal(await totalInput.inputValue(), '35');
+    assert.match(await page.locator('#custom-collective-goal-copy').innerText(), /^35 \/ 15,000 分$/);
+
     await page.waitForTimeout(1000);
     const savedPayloads = await fakeCloud.getSavedPayloads();
     assert.ok(savedPayloads.length >= 1);
@@ -829,6 +848,9 @@ test('chooses a system when adding a course and switches systems by course', asy
     assert.equal(Object.prototype.hasOwnProperty.call(saved, 'layoutMode'), false);
     assert.equal(customCourse.systemType, 'custom');
     assert.equal(customCourse.customLessonRecords['1']['class-2-student-1'].punctuality, 12);
+    assert.equal(customCourse.customLessonRecords['2']['class-2-student-1'].homework, 8);
+    assert.equal(customCourse.customLessonRecords['3']['class-2-student-1'].preview, 5);
+    assert.equal(customCourse.customCarryoverPoints['class-2-student-1'], 10);
     assert.equal(saved.classes[0].systemType, 'classic');
     assert.equal(saved.classes[0].students[0].notebook, 0);
 
@@ -836,7 +858,7 @@ test('chooses a system when adding a course and switches systems by course', asy
     await page.click('[data-view="ranks"]');
     await page.locator('#ranks-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#rank-list .rank-row').count(), 1);
-    assert.match(await page.locator('#rank-list .rank-points').innerText(), /12/);
+    assert.match(await page.locator('#rank-list .rank-points').innerText(), /35/);
     await page.click('#class-switcher-button');
     await page.click('[data-class-switch="class-1"]');
     assert.equal(await page.locator('#current-course-system').innerText(), '四项习惯系统');
@@ -995,7 +1017,7 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260820-growth-layout-v2`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260820-growth-totals-v3`), true, `${asset} must be versioned`);
   }
 });
 
@@ -1028,7 +1050,7 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /id="rankup-sound-enabled"/);
   assert.match(html, /固定 5\.2 秒/);
   assert.match(html, /所有设备同步/);
-  assert.match(html, /src\/rankup-sound\.js\?v=20260820-growth-layout-v2/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260820-growth-totals-v3/);
 });
 
 test('saves a selected 5.2 second URL clip into cloud app state', async () => {

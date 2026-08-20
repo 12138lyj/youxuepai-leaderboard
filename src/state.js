@@ -555,6 +555,18 @@
     return normalizeClassroom({ ...classroom, customLessonRecords });
   }
 
+  function updateCustomStudentTotalPoints(classroom, id, value) {
+    if (!classroom) return classroom;
+    const studentId = String(id);
+    if (!classroom.students?.some((student) => String(student.id) === studentId)) return classroom;
+    const customCarryoverPoints = { ...(classroom.customCarryoverPoints || {}) };
+    customCarryoverPoints[studentId] = Math.max(
+      0,
+      normalizeScore(value) - sumCustomRecordScores(classroom.customLessonRecords, studentId),
+    );
+    return normalizeClassroom({ ...classroom, customCarryoverPoints });
+  }
+
   function updateCustomStudentBadge(classroom, id, field, level) {
     if (!classroom || !customBadgeFields.includes(field) || !badgeColors.has(level)) return classroom;
     const studentId = String(id);
@@ -720,6 +732,7 @@
     updateStudent,
     updateStudentScore,
     updateCustomStudentScore,
+    updateCustomStudentTotalPoints,
     updateCustomStudentBadge,
     addStudent,
     removeStudent,

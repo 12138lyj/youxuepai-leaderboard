@@ -1023,7 +1023,7 @@
     return `
       <label class="student-field total-field">
         <span>累计积分</span>
-        <input type="number" min="0" step="1" inputmode="numeric" value="${State.getCustomStudentTotalPoints(classroom, student.id)}" data-student-id="${escapeHtml(student.id)}" readonly aria-label="${escapeHtml(student.name)} 累计积分">
+        <input type="number" min="0" step="1" inputmode="numeric" value="${State.getCustomStudentTotalPoints(classroom, student.id)}" data-student-id="${escapeHtml(student.id)}" data-field="totalPoints" aria-label="${escapeHtml(student.name)} 累计积分">
       </label>
     `;
   }
@@ -1273,9 +1273,13 @@
     if (!student) return;
     const field = input.dataset.field;
     const isName = field === 'name';
-    const isCustomScore = isCustomLayout() && State.customScoreFields.includes(field);
+    const usesCustomScores = isCustomLayout();
+    const isCustomScore = usesCustomScores && State.customScoreFields.includes(field);
+    const isCustomTotal = usesCustomScores && field === 'totalPoints';
     const currentValue = isCustomScore
       ? State.getCustomStudentScores(classroom, student.id)[field]
+      : isCustomTotal
+        ? State.getCustomStudentTotalPoints(classroom, student.id)
       : student[field];
     const nextValue = isName ? input.value.trim() : State.normalizeScore(input.value);
     if (isName && !nextValue) {
@@ -1296,8 +1300,10 @@
         ? State.updateStudent(current, student.id, { name: nextValue })
         : isCustomScore
           ? State.updateCustomStudentScore(current, student.id, field, nextValue)
+          : isCustomTotal
+            ? State.updateCustomStudentTotalPoints(current, student.id, nextValue)
           : State.updateStudentScore(current, student.id, field, nextValue);
-      nextPoints = isCustomScore
+      nextPoints = usesCustomScores
         ? State.getCustomStudentTotalPoints(updatedClassroom, student.id)
         : State.getStudentTotalPoints(updatedClassroom, student.id);
       isRankUpgrade = !isName && Ranks.isRankUpgrade(previousPoints, nextPoints);
@@ -1315,12 +1321,10 @@
     });
     persist();
     renderDisplay();
-    input.value = String(nextValue);
+    input.value = String(field === 'totalPoints' ? nextPoints : nextValue);
     if (field !== 'totalPoints') {
       const updatedStudent = activeClassroom().students.find((candidate) => candidate.id === student.id);
-      const totalInput = isCustomScore
-        ? elements.editorList.querySelector(`[data-student-id="${CSS.escape(student.id)}"][readonly]`)
-        : elements.editorList.querySelector(`[data-student-id="${CSS.escape(student.id)}"][data-field="totalPoints"]`);
+      const totalInput = elements.editorList.querySelector(`[data-student-id="${CSS.escape(student.id)}"][data-field="totalPoints"]`);
       if (updatedStudent && totalInput) {
         totalInput.value = String(studentTotalPoints(activeClassroom(), updatedStudent));
       }
