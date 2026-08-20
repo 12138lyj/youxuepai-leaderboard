@@ -797,12 +797,20 @@ test('chooses a system when adding a course and switches systems by course', asy
     await page.locator('#custom-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#custom-course-title').innerText(), '成长挑战');
     assert.equal(await page.locator('#current-course-system').innerText(), '成长积分系统');
-    assert.equal(await page.locator('.custom-module-card').count(), 5);
-    assert.equal(await page.getByText('准时先锋', { exact: true }).count() > 0, true);
-    assert.equal(await page.getByText('测评达人', { exact: true }).count() > 0, true);
-    assert.equal(await page.getByText('作业之星', { exact: true }).count() > 0, true);
-    assert.equal(await page.getByText('课堂活力', { exact: true }).count() > 0, true);
-    assert.equal(await page.getByText('预习先行', { exact: true }).count() > 0, true);
+    assert.equal(await page.locator('#custom-class-pulse').count(), 1);
+    assert.equal(await page.locator('#custom-winners-title').innerText(), '今日领跑者');
+    assert.equal(await page.locator('#custom-winners-grid .winner-card').count(), 5);
+    assert.equal(await page.locator('#custom-boards-title').innerText(), '五项课堂排行');
+    assert.equal(await page.locator('#custom-boards-grid .score-board').count(), 5);
+    assert.equal(await page.locator('#custom-collective-progress').getAttribute('role'), 'progressbar');
+    const customBoardTops = await page.locator('#custom-boards-grid .score-board').evaluateAll((boards) => (
+      boards.map((board) => Math.round(board.getBoundingClientRect().top))
+    ));
+    assert.equal(new Set(customBoardTops).size, 1);
+    const customViewText = await page.locator('#custom-view').innerText();
+    for (const label of ['准时先锋', '测评达人', '作业之星', '课堂活力', '预习先行']) {
+      assert.match(customViewText, new RegExp(label));
+    }
 
     await page.click('#edit-button');
     const punctuality = page.locator('input[data-student-id="class-2-student-1"][data-field="punctuality"]');
@@ -812,6 +820,7 @@ test('chooses a system when adding a course and switches systems by course', asy
       await page.locator('input[data-student-id="class-2-student-1"][readonly]').inputValue(),
       '12',
     );
+    assert.match(await page.locator('#custom-collective-goal-copy').innerText(), /^12 \/ 15,000 分$/);
     await page.waitForTimeout(1000);
     const savedPayloads = await fakeCloud.getSavedPayloads();
     assert.ok(savedPayloads.length >= 1);
@@ -876,6 +885,26 @@ test('course system chooser fits mobile and cancel preserves the course draft', 
     await page.keyboard.press('Escape');
     await page.locator('#course-system-dialog').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#new-class-name').inputValue(), '移动端成长课程');
+
+    await page.click('#add-class-form button[type="submit"]');
+    await page.click('[data-course-system="custom"]');
+    await page.locator('#custom-view').waitFor({ state: 'visible' });
+    const customLayout = await page.locator('#custom-view').evaluate((view) => ({
+      overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      winnerCount: view.querySelectorAll('#custom-winners-grid .winner-card').length,
+      boardCount: view.querySelectorAll('#custom-boards-grid .score-board').length,
+      winnerColumns: getComputedStyle(view.querySelector('#custom-winners-grid')).gridTemplateColumns.split(' ').length,
+      boardColumns: getComputedStyle(view.querySelector('#custom-boards-grid')).gridTemplateColumns.split(' ').length,
+      boardRegionScrolls: view.querySelector('#custom-boards-grid').scrollWidth > view.querySelector('#custom-boards-grid').clientWidth,
+    }));
+    assert.deepEqual(customLayout, {
+      overflows: false,
+      winnerCount: 5,
+      boardCount: 5,
+      winnerColumns: 1,
+      boardColumns: 5,
+      boardRegionScrolls: true,
+    });
   } finally {
     await browser.close();
   }
@@ -966,7 +995,7 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260820-course-systems-v1`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260820-growth-layout-v2`), true, `${asset} must be versioned`);
   }
 });
 
@@ -999,7 +1028,7 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /id="rankup-sound-enabled"/);
   assert.match(html, /固定 5\.2 秒/);
   assert.match(html, /所有设备同步/);
-  assert.match(html, /src\/rankup-sound\.js\?v=20260820-course-systems-v1/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260820-growth-layout-v2/);
 });
 
 test('saves a selected 5.2 second URL clip into cloud app state', async () => {

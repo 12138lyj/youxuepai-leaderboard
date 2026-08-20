@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>学能训练班 · 积分排行榜</title>
-  <link rel="stylesheet" href="styles.css?v=20260820-course-systems-v1">
+  <link rel="stylesheet" href="styles.css?v=20260820-growth-layout-v2">
 </head>
 <body>
   <header class="app-header">
@@ -128,35 +128,44 @@
         <div id="custom-summary-strip" class="summary-strip" aria-label="课程概览"></div>
       </div>
 
-      <section class="custom-hero-band" aria-label="课程总积分">
-        <div class="custom-hero-copy">
-          <span class="custom-hero-kicker">本节课成长总分</span>
-          <strong id="custom-total-points">0</strong>
-          <span id="custom-total-caption">五项评分全部计入总分与段位</span>
+      <section id="custom-class-pulse" class="class-pulse" aria-label="班级成长动态">
+        <div class="pulse-item pulse-goal">
+          <span class="pulse-icon yellow"><i data-lucide="flag" aria-hidden="true"></i></span>
+          <div class="pulse-copy">
+            <div class="pulse-label">全班共同目标</div>
+            <div id="custom-collective-goal-copy" class="pulse-value"></div>
+            <div id="custom-collective-progress" class="collective-progress" role="progressbar" aria-label="全班共同目标进度" aria-valuemin="0" aria-valuemax="100">
+              <span id="custom-collective-progress-fill"></span>
+            </div>
+          </div>
         </div>
-        <div id="custom-top-student" class="custom-top-student"></div>
+        <div id="custom-progress-star" class="pulse-item">
+          <span class="pulse-icon green"><i data-lucide="trending-up" aria-hidden="true"></i></span>
+          <div class="pulse-copy"></div>
+        </div>
+        <div id="custom-latest-honor" class="pulse-item">
+          <span class="pulse-icon purple"><i data-lucide="sparkles" aria-hidden="true"></i></span>
+          <div class="pulse-copy"></div>
+        </div>
       </section>
 
-      <section aria-labelledby="custom-modules-title">
+      <section aria-labelledby="custom-winners-title">
+        <h2 id="custom-winners-title" class="section-title">
+          <i data-lucide="sparkles" aria-hidden="true"></i>
+          今日领跑者
+        </h2>
+        <div id="custom-winners-grid" class="winners-grid custom-winners-grid"></div>
+      </section>
+
+      <section aria-labelledby="custom-boards-title">
         <div class="section-heading">
-          <h2 id="custom-modules-title" class="section-title">
-            <i data-lucide="trophy" aria-hidden="true"></i>
-            五项成长排行
+          <h2 id="custom-boards-title" class="section-title">
+            <i data-lucide="list-ordered" aria-hidden="true"></i>
+            五项课堂排行
           </h2>
           <p>同分时按姓名排序 · 每项均计入总分、段位和徽章</p>
         </div>
-        <div id="custom-module-grid" class="custom-module-grid"></div>
-      </section>
-
-      <section aria-labelledby="custom-students-title">
-        <div class="section-heading">
-          <h2 id="custom-students-title" class="section-title">
-            <i data-lucide="users-round" aria-hidden="true"></i>
-            学员成长总览
-          </h2>
-          <p>累计分数实时计算当前段位</p>
-        </div>
-        <div id="custom-student-table" class="custom-student-table"></div>
+        <div id="custom-boards-grid" class="boards-grid custom-boards-grid"></div>
       </section>
     </section>
 
@@ -520,13 +529,13 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="vendor/lucide.min.js?v=20260820-course-systems-v1"></script>
-  <script src="vendor/supabase.min.js?v=20260820-course-systems-v1"></script>
-  <script src="src/rank-rules.js?v=20260820-course-systems-v1"></script>
-  <script src="src/state.js?v=20260820-course-systems-v1"></script>
-  <script src="src/cloud-config.js?v=20260820-course-systems-v1"></script>
-  <script src="src/cloud.js?v=20260820-course-systems-v1"></script>
-  <script src="src/rankup-sound.js?v=20260820-course-systems-v1"></script>
-  <script src="src/app.js?v=20260820-course-systems-v1"></script>
+  <script src="vendor/lucide.min.js?v=20260820-growth-layout-v2"></script>
+  <script src="vendor/supabase.min.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/rank-rules.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/state.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/cloud-config.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/cloud.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/rankup-sound.js?v=20260820-growth-layout-v2"></script>
+  <script src="src/app.js?v=20260820-growth-layout-v2"></script>
 </body>
 </html>

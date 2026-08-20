@@ -85,11 +85,13 @@
     customCourseTitle: document.querySelector('#custom-course-title'),
     customCourseSubtitle: document.querySelector('#custom-course-subtitle'),
     customSummaryStrip: document.querySelector('#custom-summary-strip'),
-    customTotalPoints: document.querySelector('#custom-total-points'),
-    customTotalCaption: document.querySelector('#custom-total-caption'),
-    customTopStudent: document.querySelector('#custom-top-student'),
-    customModuleGrid: document.querySelector('#custom-module-grid'),
-    customStudentTable: document.querySelector('#custom-student-table'),
+    customCollectiveGoalCopy: document.querySelector('#custom-collective-goal-copy'),
+    customCollectiveProgress: document.querySelector('#custom-collective-progress'),
+    customCollectiveProgressFill: document.querySelector('#custom-collective-progress-fill'),
+    customProgressStar: document.querySelector('#custom-progress-star'),
+    customLatestHonor: document.querySelector('#custom-latest-honor'),
+    customWinnersGrid: document.querySelector('#custom-winners-grid'),
+    customBoardsGrid: document.querySelector('#custom-boards-grid'),
     courseNameInput: document.querySelector('#custom-course-name'),
     classSwitcher: document.querySelector('.class-switcher'),
     classSwitcherButton: document.querySelector('#class-switcher-button'),
@@ -375,6 +377,12 @@
       : State.getStudentTotalPoints(classroom, student.id);
   }
 
+  function studentTotalPointsForMode(classroom, student, mode) {
+    return mode === 'custom'
+      ? State.getCustomStudentTotalPoints(classroom, student.id)
+      : State.getStudentTotalPoints(classroom, student.id);
+  }
+
   function studentModuleScore(classroom, student, category, mode = isCustomLayout() ? 'custom' : 'classic') {
     if (mode === 'custom') return State.getCustomStudentScores(classroom, student.id)[category.field] || 0;
     return student[category.field] || 0;
@@ -546,39 +554,73 @@
     `;
   }
 
-  function renderMotivation() {
+  function renderMotivationBand(targets, mode) {
     const classroom = activeClassroom();
-    const totalPoints = classroom.students.reduce((total, student) => total + studentTotalPoints(classroom, student), 0);
+    const categoryList = mode === 'custom' ? customCategories : categories;
+    const totalPoints = classroom.students.reduce((total, student) => (
+      total + studentTotalPointsForMode(classroom, student, mode)
+    ), 0);
     const goal = Math.max(1, classroom.collectiveGoal || State.DEFAULT_COLLECTIVE_GOAL);
     const progress = Math.min(100, Math.round((totalPoints / goal) * 100));
-    elements.collectiveGoalCopy.textContent = `${totalPoints.toLocaleString('zh-CN')} / ${goal.toLocaleString('zh-CN')} 分`;
-    elements.collectiveProgress.setAttribute('aria-valuenow', String(progress));
-    elements.collectiveProgressFill.style.setProperty('--collective-progress', `${progress}%`);
+    targets.goalCopy.textContent = `${totalPoints.toLocaleString('zh-CN')} / ${goal.toLocaleString('zh-CN')} 分`;
+    targets.progress.setAttribute('aria-valuenow', String(progress));
+    targets.progressFill.style.setProperty('--collective-progress', `${progress}%`);
 
     const progressCandidates = classroom.students.flatMap((student) => {
-      const previous = classroom.previousScores?.[student.id];
+      const previous = mode === 'custom'
+        ? classroom.customLessonRecords?.[String(classroom.lesson - 1)]?.[String(student.id)]
+        : classroom.previousScores?.[student.id];
       if (!previous) return [];
-      const currentTotal = categories.reduce((sum, category) => sum + student[category.field], 0);
-      const previousTotal = categories.reduce((sum, category) => sum + State.normalizeScore(previous[category.field]), 0);
+      const currentTotal = categoryList.reduce((sum, category) => (
+        sum + studentModuleScore(classroom, student, category, mode)
+      ), 0);
+      const previousTotal = categoryList.reduce((sum, category) => (
+        sum + State.normalizeScore(previous[category.field])
+      ), 0);
       return [{ student, delta: currentTotal - previousTotal }];
     }).sort((left, right) => right.delta - left.delta);
     const progressWinner = progressCandidates[0];
-    elements.progressStar.querySelector('.pulse-copy').innerHTML = progressWinner?.delta > 0
-      ? `<div class="pulse-label">本节课进步之星</div><div class="pulse-value">${escapeHtml(progressWinner.student.name)} <strong>+${progressWinner.delta}</strong></div><div class="pulse-note">相比上一节四项总分</div>`
+    targets.progressStar.querySelector('.pulse-copy').innerHTML = progressWinner?.delta > 0
+      ? `<div class="pulse-label">本节课进步之星</div><div class="pulse-value">${escapeHtml(progressWinner.student.name)} <strong>+${progressWinner.delta}</strong></div><div class="pulse-note">相比上一节${mode === 'custom' ? '五项' : '四项'}总分</div>`
       : '<div class="pulse-label">本节课进步之星</div><div class="pulse-value">等待下一节课</div><div class="pulse-note">切换课次后自动比较</div>';
 
     const latestHonor = classroom.honorEvents?.[0];
-    elements.latestHonor.querySelector('.pulse-copy').innerHTML = latestHonor
+    targets.latestHonor.querySelector('.pulse-copy').innerHTML = latestHonor
       ? `<div class="pulse-label">最新荣誉</div><div class="pulse-value">${escapeHtml(latestHonor.studentName)}</div><div class="pulse-note">${escapeHtml(latestHonor.message)}</div>`
       : '<div class="pulse-label">最新荣誉</div><div class="pulse-value">荣誉席位待点亮</div><div class="pulse-note">升级段位后将在这里播报</div>';
   }
 
-  function renderWinners() {
+  function renderMotivation() {
+    renderMotivationBand({
+      goalCopy: elements.collectiveGoalCopy,
+      progress: elements.collectiveProgress,
+      progressFill: elements.collectiveProgressFill,
+      progressStar: elements.progressStar,
+      latestHonor: elements.latestHonor,
+    }, 'classic');
+    renderMotivationBand({
+      goalCopy: elements.customCollectiveGoalCopy,
+      progress: elements.customCollectiveProgress,
+      progressFill: elements.customCollectiveProgressFill,
+      progressStar: elements.customProgressStar,
+      latestHonor: elements.customLatestHonor,
+    }, 'custom');
+  }
+
+  function sortedStudentsForCategory(classroom, category, mode) {
+    return [...classroom.students].sort((left, right) => (
+      studentModuleScore(classroom, right, category, mode) - studentModuleScore(classroom, left, category, mode)
+      || String(left.name).localeCompare(String(right.name), 'zh-CN')
+    ));
+  }
+
+  function renderWinnerCards(target, categoryList, mode) {
     const classroom = activeClassroom();
-    elements.winnersGrid.innerHTML = categories.map((category) => {
-      const winner = State.sortStudents(classroom.students, category.field)[0];
+    target.innerHTML = categoryList.map((category) => {
+      const winner = sortedStudentsForCategory(classroom, category, mode)[0];
       if (!winner) return '';
-      const rank = Ranks.getRank(studentTotalPoints(classroom, winner));
+      const score = studentModuleScore(classroom, winner, category, mode);
+      const rank = Ranks.getRank(studentTotalPointsForMode(classroom, winner, mode));
       const initial = Array.from(winner.name.trim())[0] || '学';
       return `
         <article class="winner-card ${category.tone}">
@@ -592,8 +634,8 @@
               ${category.label}第一名
             </div>
             <div class="winner-name">${escapeHtml(winner.name)}</div>
-            <div class="winner-score">${winner[category.field]} 分 · ${category.honor}</div>
-            <div class="winner-badge-row">${renderBadge(winner, category.field)}</div>
+            <div class="winner-score">${score} 分 · ${category.honor}</div>
+            <div class="winner-badge-row">${renderBadge(winner, category.field, mode)}</div>
             <div class="student-meta">当前段位 · ${rank.name}</div>
           </div>
         </article>
@@ -601,12 +643,16 @@
     }).join('');
   }
 
-  function renderBoards() {
+  function renderWinners() {
+    renderWinnerCards(elements.winnersGrid, categories, 'classic');
+  }
+
+  function renderScoreBoards(target, categoryList, mode) {
     const classroom = activeClassroom();
-    elements.boardsGrid.innerHTML = categories.map((category) => {
-      const students = State.sortStudents(classroom.students, category.field);
+    target.innerHTML = categoryList.map((category) => {
+      const students = sortedStudentsForCategory(classroom, category, mode);
       const rows = students.map((student, index) => {
-        const rank = Ranks.getRank(studentTotalPoints(classroom, student));
+        const rank = Ranks.getRank(studentTotalPointsForMode(classroom, student, mode));
         return `
           <div class="board-row" data-board-student="${escapeHtml(student.id)}">
             <span class="placement">${index + 1}</span>
@@ -617,8 +663,8 @@
                 <div class="student-meta">${rank.name}</div>
               </div>
             </div>
-            <div class="board-badge-cell">${renderBadge(student, category.field)}</div>
-            <div class="board-score">${student[category.field]} <small>分</small></div>
+            <div class="board-badge-cell">${renderBadge(student, category.field, mode)}</div>
+            <div class="board-score">${studentModuleScore(classroom, student, category, mode)} <small>分</small></div>
           </div>
         `;
       }).join('');
@@ -635,6 +681,10 @@
         </article>
       `;
     }).join('');
+  }
+
+  function renderBoards() {
+    renderScoreBoards(elements.boardsGrid, categories, 'classic');
   }
 
   function renderRanks() {
@@ -679,15 +729,10 @@
     const classroom = activeClassroom();
     const courseName = classroom.name;
     const students = classroom.students || [];
-    const totalPoints = students.reduce((total, student) => total + State.getCustomStudentTotalPoints(classroom, student.id), 0);
     const currentScores = students.flatMap((student) => customCategories.map((category) => (
       State.getCustomStudentScores(classroom, student.id)[category.field] || 0
     )));
     const average = students.length ? (currentScores.reduce((sum, value) => sum + value, 0) / (students.length * customCategories.length)).toFixed(1) : '0.0';
-    const topStudent = [...students].sort((left, right) => (
-      State.getCustomStudentTotalPoints(classroom, right.id) - State.getCustomStudentTotalPoints(classroom, left.id)
-      || String(left.name).localeCompare(String(right.name), 'zh-CN')
-    ))[0];
 
     elements.customCourseTitle.textContent = courseName;
     elements.customCourseSubtitle.textContent = `第 ${classroom.lesson} 节课 · 五项评分即时更新 · 累计分数参与段位计算`;
@@ -705,58 +750,8 @@
         <div class="summary-value purple">${customCategories.length} <small>项</small></div>
       </div>
     `;
-    elements.customTotalPoints.textContent = totalPoints.toLocaleString('zh-CN');
-    elements.customTotalCaption.textContent = `全班累计 ${totalPoints.toLocaleString('zh-CN')} 分 · 五项评分全部计入总分与段位`;
-    elements.customTopStudent.innerHTML = topStudent
-      ? `<div class="custom-top-student-label">当前累计领跑</div><div class="custom-top-student-name">${escapeHtml(topStudent.name)}</div><div class="custom-top-student-meta">${State.getCustomStudentTotalPoints(classroom, topStudent.id).toLocaleString('zh-CN')} 分 · ${Ranks.getRank(State.getCustomStudentTotalPoints(classroom, topStudent.id)).name}</div>`
-      : '<div class="custom-top-student-label">当前累计领跑</div><div class="custom-top-student-name">等待学员</div>';
-
-    elements.customModuleGrid.innerHTML = customCategories.map((category) => {
-      const ranked = [...students].sort((left, right) => (
-        studentModuleScore(classroom, right, category, 'custom') - studentModuleScore(classroom, left, category, 'custom')
-        || String(left.name).localeCompare(String(right.name), 'zh-CN')
-      ));
-      const rows = ranked.map((student, index) => `
-        <div class="custom-module-row">
-          <span class="custom-module-rank">${index + 1}</span>
-          <div class="custom-module-student">
-            ${studentAvatar(student)}
-            <span class="custom-module-student-name">${escapeHtml(student.name)}</span>
-          </div>
-          <span class="custom-module-score">${studentModuleScore(classroom, student, category, 'custom')}<small>分</small></span>
-        </div>
-      `).join('');
-      return `
-        <article class="custom-module-card" style="--module-color:${category.color};--module-soft:${category.soft};--module-deep:${category.deep}">
-          <header class="custom-module-card-header">
-            <span class="custom-module-icon"><i data-lucide="${category.icon}" aria-hidden="true"></i></span>
-            <span class="custom-module-name">${escapeHtml(category.label)}</span>
-          </header>
-          <div>${rows || '<p class="history-empty">暂无学员</p>'}</div>
-        </article>
-      `;
-    }).join('');
-
-    const sortedStudents = [...students].sort((left, right) => (
-      State.getCustomStudentTotalPoints(classroom, right.id) - State.getCustomStudentTotalPoints(classroom, left.id)
-      || String(left.name).localeCompare(String(right.name), 'zh-CN')
-    ));
-    const headerCells = ['学员', ...customCategories.map((category) => category.label), '累计 / 段位'];
-    elements.customStudentTable.innerHTML = `
-      <div class="custom-student-grid header">${headerCells.map((label) => `<span>${escapeHtml(label)}</span>`).join('')}</div>
-      ${sortedStudents.map((student) => {
-        const total = State.getCustomStudentTotalPoints(classroom, student.id);
-        const rank = Ranks.getRank(total);
-        const scores = State.getCustomStudentScores(classroom, student.id);
-        return `
-          <div class="custom-student-grid" data-custom-student="${escapeHtml(student.id)}">
-            <span class="custom-student-name-cell">${studentAvatar(student)}<span>${escapeHtml(student.name)}</span></span>
-            ${customCategories.map((category) => `<span class="custom-student-score">${scores[category.field] || 0}<small> 分</small></span>`).join('')}
-            <span class="custom-student-total">${total}<small> 分</small><span class="custom-student-rank">${renderRankEmblem(rank, 'rank-mini-emblem')}${escapeHtml(rank.shortName)}</span></span>
-          </div>
-        `;
-      }).join('')}
-    `;
+    renderWinnerCards(elements.customWinnersGrid, customCategories, 'custom');
+    renderScoreBoards(elements.customBoardsGrid, customCategories, 'custom');
   }
 
   function renderDisplay() {
