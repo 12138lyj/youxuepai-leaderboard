@@ -986,7 +986,7 @@
       ? (student) => customCategories.map((category) => customEditorField(classroom, student, category)).join('')
       : (student) => categories.map((category) => editorField(student, category.field, 'number')).join('');
     elements.editorList.innerHTML = classroom.students.map((student, index) => `
-      <section class="student-editor" data-editor-row="${escapeHtml(student.id)}" aria-label="学员 ${index + 1}">
+      <section class="student-editor ${isCustomLayout() ? 'custom-score-editor' : ''}" data-editor-row="${escapeHtml(student.id)}" aria-label="学员 ${index + 1}">
         ${editorField(student, 'name', 'text', 'name-field')}
         ${scoreFieldsMarkup(student)}
         ${isCustomLayout() ? customTotalEditorField(classroom, student) : editorField(student, 'totalPoints', 'number', 'total-field')}

@@ -23,6 +23,7 @@ tests/*
 !tests/rank-rules.test.cjs
 !tests/rankup-sound.test.cjs
 !tests/history-migration.test.cjs
+!tests/editor-layout.test.cjs
 
 !supabase/
 supabase/*
