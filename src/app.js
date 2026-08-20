@@ -68,6 +68,7 @@
   let selectedHistorySnapshot = null;
   let historyBusy = false;
   let historyReturnFocus = null;
+  let pendingCourseName = '';
 
   const elements = {
     lessonSubtitle: document.querySelector('#lesson-subtitle'),
@@ -80,8 +81,6 @@
     collectiveProgressFill: document.querySelector('#collective-progress-fill'),
     progressStar: document.querySelector('#progress-star'),
     latestHonor: document.querySelector('#latest-honor'),
-    layoutSwitcher: document.querySelector('#layout-switcher'),
-    layoutModeButtons: [...document.querySelectorAll('[data-layout-mode]')],
     customView: document.querySelector('#custom-view'),
     customCourseTitle: document.querySelector('#custom-course-title'),
     customCourseSubtitle: document.querySelector('#custom-course-subtitle'),
@@ -91,14 +90,19 @@
     customTopStudent: document.querySelector('#custom-top-student'),
     customModuleGrid: document.querySelector('#custom-module-grid'),
     customStudentTable: document.querySelector('#custom-student-table'),
-    customCourseName: document.querySelector('#custom-course-name'),
+    courseNameInput: document.querySelector('#custom-course-name'),
     classSwitcher: document.querySelector('.class-switcher'),
     classSwitcherButton: document.querySelector('#class-switcher-button'),
     currentClassName: document.querySelector('#current-class-name'),
+    currentCourseSystem: document.querySelector('#current-course-system'),
     classSwitcherMenu: document.querySelector('#class-switcher-menu'),
     classList: document.querySelector('#class-list'),
     addClassForm: document.querySelector('#add-class-form'),
     newClassName: document.querySelector('#new-class-name'),
+    courseSystemDialog: document.querySelector('#course-system-dialog'),
+    pendingCourseName: document.querySelector('#pending-course-name'),
+    courseSystemButtons: [...document.querySelectorAll('[data-course-system]')],
+    courseSystemCancel: document.querySelector('#course-system-cancel'),
     editButton: document.querySelector('#edit-button'),
     cloudStatus: document.querySelector('#cloud-status'),
     adminLogout: document.querySelector('#admin-logout'),
@@ -358,7 +362,7 @@
   }
 
   function isCustomLayout() {
-    return appState.layoutMode === 'custom';
+    return activeClassroom()?.systemType === 'custom';
   }
 
   function currentCategories() {
@@ -450,9 +454,14 @@
     }
   }
 
+  function courseSystemLabel(systemType) {
+    return systemType === 'custom' ? '成长积分系统' : '四项习惯系统';
+  }
+
   function renderClassSwitcher() {
     const current = activeClassroom();
     elements.currentClassName.textContent = current.name;
+    elements.currentCourseSystem.textContent = courseSystemLabel(current.systemType);
     const disableDelete = appState.classes.length <= 1;
     elements.classList.innerHTML = appState.classes.map((classroom) => {
       const isCurrent = classroom.id === appState.activeClassId;
@@ -461,7 +470,7 @@
           <div class="class-row is-editing" data-class-row>
             <form class="class-rename-form" data-class-rename-form="${escapeHtml(classroom.id)}">
               <input class="class-rename-input" type="text" maxlength="30" value="${escapeHtml(classroom.name)}" aria-label="重命名${escapeHtml(classroom.name)}">
-              <button class="class-row-action class-save-button" type="submit" aria-label="保存班级名称" title="保存">
+              <button class="class-row-action class-save-button" type="submit" aria-label="保存课程名称" title="保存">
                 <i data-lucide="check" aria-hidden="true"></i>
               </button>
               <button class="class-row-action" type="button" data-class-rename-cancel="${escapeHtml(classroom.id)}" aria-label="取消重命名" title="取消">
@@ -477,32 +486,22 @@
             <span class="class-current-marker" aria-hidden="true">
               ${isCurrent ? '<i data-lucide="circle-check"></i>' : ''}
             </span>
-            <span>${escapeHtml(classroom.name)}</span>
+            <span class="class-course-copy">
+              <strong>${escapeHtml(classroom.name)}</strong>
+              <small class="class-system-tag ${classroom.systemType === 'custom' ? 'custom' : 'classic'}">${courseSystemLabel(classroom.systemType)}</small>
+            </span>
           </button>
           ${isAdmin ? `
             <button class="class-row-action" type="button" data-class-rename="${escapeHtml(classroom.id)}" aria-label="重命名${escapeHtml(classroom.name)}" title="重命名">
               <i data-lucide="pencil" aria-hidden="true"></i>
             </button>
-            <button class="class-row-action class-delete-button" type="button" data-class-delete="${escapeHtml(classroom.id)}" aria-label="删除${escapeHtml(classroom.name)}" title="删除班级" ${disableDelete ? 'disabled' : ''}>
+            <button class="class-row-action class-delete-button" type="button" data-class-delete="${escapeHtml(classroom.id)}" aria-label="删除${escapeHtml(classroom.name)}" title="删除课程" ${disableDelete ? 'disabled' : ''}>
               <i data-lucide="trash-2" aria-hidden="true"></i>
             </button>
           ` : ''}
         </div>
       `;
     }).join('');
-  }
-
-  function renderLayoutSwitcher() {
-    const customName = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
-    document.querySelectorAll('[data-custom-course-label]').forEach((label) => {
-      label.textContent = customName;
-    });
-    elements.layoutModeButtons.forEach((button) => {
-      const isActive = button.dataset.layoutMode === appState.layoutMode;
-      button.classList.toggle('is-active', isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-      button.title = isActive ? `当前排版：${button.textContent.trim()}` : `切换到${button.textContent.trim()}`;
-    });
   }
 
   function setClassMenuOpen(isOpen) {
@@ -678,7 +677,7 @@
 
   function renderCustomCourse() {
     const classroom = activeClassroom();
-    const courseName = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
+    const courseName = classroom.name;
     const students = classroom.students || [];
     const totalPoints = students.reduce((total, student) => total + State.getCustomStudentTotalPoints(classroom, student.id), 0);
     const currentScores = students.flatMap((student) => customCategories.map((category) => (
@@ -762,7 +761,6 @@
 
   function renderDisplay() {
     renderClassSwitcher();
-    renderLayoutSwitcher();
     renderSummary();
     renderMotivation();
     renderWinners();
@@ -777,10 +775,11 @@
     const classrooms = payload.classes || [];
     const students = classrooms.reduce((total, classroom) => total + classroom.students.length, 0);
     const points = classrooms.reduce((total, classroom) => total + classroom.students.reduce(
-      (sum, student) => sum + (payload.layoutMode === 'custom'
+      (sum, student) => sum + (classroom.systemType === 'custom'
         ? State.getCustomStudentTotalPoints(classroom, student.id)
         : State.getStudentTotalPoints(classroom, student.id)), 0,
     ), 0);
+    const activeCourse = State.getActiveClassroom(payload);
     const sound = payload.rankupSound;
     const audio = !sound.enabled
       ? '已静音'
@@ -791,9 +790,11 @@
       classes: classrooms.length,
       students,
       points,
-      lesson: State.getActiveClassroom(payload)?.lesson || 0,
+      lesson: activeCourse?.lesson || 0,
       audio,
-      courseName: payload.layoutMode === 'custom' ? payload.customCourseName : '四项习惯',
+      courseName: activeCourse
+        ? `${activeCourse.name} · ${courseSystemLabel(activeCourse.systemType)}`
+        : '课程未命名',
     };
   }
 
@@ -823,7 +824,7 @@
           <span class="history-version-number">v${Number(snapshot.revision)}</span>
           <div>
             <h3>${summary.lesson ? `第 ${summary.lesson} 节课 · ` : ''}${current ? '当前版本' : '自动保存'}</h3>
-            <p>${escapeHtml(formatHistoryDate(snapshot.created_at))} · ${escapeHtml(summary.courseName)} · ${summary.classes}个班级 · ${summary.students}名学员 · 总积分 ${summary.points.toLocaleString('zh-CN')} · 音效：${escapeHtml(summary.audio)}</p>
+            <p>${escapeHtml(formatHistoryDate(snapshot.created_at))} · ${escapeHtml(summary.courseName)} · ${summary.classes}个课程 · ${summary.students}名学员 · 总积分 ${summary.points.toLocaleString('zh-CN')} · 音效：${escapeHtml(summary.audio)}</p>
           </div>
           <button class="history-restore-button" type="button" data-history-id="${Number(snapshot.id)}" ${current ? 'disabled' : ''}>${current ? '当前版本' : '恢复此版本'}</button>
         </article>
@@ -983,7 +984,7 @@
     const classroom = activeClassroom();
     elements.lessonInput.value = String(classroom.lesson);
     elements.collectiveGoalInput.value = String(classroom.collectiveGoal);
-    elements.customCourseName.value = appState.customCourseName || State.DEFAULT_CUSTOM_COURSE_NAME;
+    elements.courseNameInput.value = classroom.name;
     renderSoundEditor();
     const disableDelete = classroom.students.length <= 1;
     const scoreFieldsMarkup = isCustomLayout()
@@ -1027,7 +1028,7 @@
     return `
       <label class="student-field total-field">
         <span>累计积分</span>
-        <input type="number" min="0" step="1" inputmode="numeric" value="${State.getCustomStudentTotalPoints(classroom, student.id)}" readonly aria-label="${escapeHtml(student.name)} 累计积分">
+        <input type="number" min="0" step="1" inputmode="numeric" value="${State.getCustomStudentTotalPoints(classroom, student.id)}" data-student-id="${escapeHtml(student.id)}" readonly aria-label="${escapeHtml(student.name)} 累计积分">
       </label>
     `;
   }
@@ -1109,22 +1110,41 @@
     if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
   }
 
-  function addClassroom(rawName) {
+  function requestAddClassroom(rawName) {
     if (!requireAdmin()) return;
     const name = rawName.trim();
     if (!name) {
-      showToast('班级名称不能为空');
+      showToast('课程名称不能为空');
       elements.newClassName.focus();
       return;
     }
-    appState = State.addClassroom(appState, name);
+    pendingCourseName = name;
+    elements.pendingCourseName.textContent = name;
+    if (!elements.courseSystemDialog.open) elements.courseSystemDialog.showModal();
+    requestAnimationFrame(() => elements.courseSystemButtons[0]?.focus());
+  }
+
+  function cancelAddClassroom() {
+    pendingCourseName = '';
+    if (elements.courseSystemDialog.open) elements.courseSystemDialog.close();
+    requestAnimationFrame(() => elements.newClassName.focus());
+  }
+
+  function addClassroom(systemType) {
+    if (!requireAdmin() || !pendingCourseName) return;
+    const normalizedSystemType = State.normalizeCourseSystemType(systemType);
+    const name = pendingCourseName;
+    appState = State.addClassroom(appState, { name, systemType: normalizedSystemType });
+    pendingCourseName = '';
+    if (elements.courseSystemDialog.open) elements.courseSystemDialog.close();
     elements.newClassName.value = '';
     persist();
     setClassMenuOpen(false);
     renderDisplay();
+    setView(activeView);
     if (elements.drawer.classList.contains('is-open')) renderEditor();
     elements.classSwitcherButton.focus();
-    showToast(`已新增并切换到 ${name}`);
+    showToast(`已新增 ${courseSystemLabel(normalizedSystemType)}课程：${name}`);
   }
 
   function switchClassroom(id) {
@@ -1138,19 +1158,10 @@
     persist();
     setClassMenuOpen(false);
     renderDisplay();
-    if (elements.drawer.classList.contains('is-open')) renderEditor();
-    elements.classSwitcherButton.focus();
-    showToast(`已切换到 ${activeClassroom().name}`);
-  }
-
-  function switchLayoutMode(mode) {
-    if (!['classic', 'custom'].includes(mode) || mode === appState.layoutMode) return;
-    appState = State.normalizeAppState({ ...appState, layoutMode: mode });
-    persist();
-    renderDisplay();
     setView(activeView);
     if (elements.drawer.classList.contains('is-open')) renderEditor();
-    showToast(mode === 'custom' ? `已切换到${appState.customCourseName}` : '已切换到四项习惯排版');
+    elements.classSwitcherButton.focus();
+    showToast(`已切换到 ${activeClassroom().name} · ${courseSystemLabel(activeClassroom().systemType)}`);
   }
 
   function beginRenameClassroom(id) {
@@ -1176,7 +1187,7 @@
       renderClassSwitcher();
       refreshIcons();
       elements.classSwitcherButton.focus();
-      if (!name) showToast('班级名称不能为空，已恢复原名称');
+      if (!name) showToast('课程名称不能为空，已恢复原名称');
       return;
     }
     appState = State.renameClassroom(appState, id, name);
@@ -1190,10 +1201,10 @@
     if (!requireAdmin()) return;
     const classroom = appState.classes.find((candidate) => candidate.id === id);
     if (!classroom || appState.classes.length <= 1) {
-      showToast('至少保留一个班级');
+      showToast('至少保留一个课程');
       return;
     }
-    if (!globalThis.confirm(`确定删除“${classroom.name}”吗？该班级的数据将被删除。`)) return;
+    if (!globalThis.confirm(`确定删除课程“${classroom.name}”吗？该课程的数据将被删除。`)) return;
     appState = State.removeClassroom(appState, id);
     editingClassId = null;
     persist();
@@ -1240,17 +1251,23 @@
     showToast(`全班目标已更新为 ${nextGoal.toLocaleString('zh-CN')} 分`);
   }
 
-  function updateCustomCourseName(rawValue) {
+  function updateCourseName(rawValue) {
     if (!requireAdmin()) return;
-    const nextName = State.normalizeCustomCourseName(rawValue);
-    if (nextName === appState.customCourseName) {
-      elements.customCourseName.value = nextName;
+    const classroom = activeClassroom();
+    const nextName = String(rawValue || '').trim().slice(0, 30);
+    if (!nextName) {
+      elements.courseNameInput.value = classroom.name;
+      showToast('课程名称不能为空');
       return;
     }
-    appState = State.normalizeAppState({ ...appState, customCourseName: nextName });
+    if (nextName === classroom.name) {
+      elements.courseNameInput.value = nextName;
+      return;
+    }
+    appState = State.renameClassroom(appState, classroom.id, nextName);
     persist();
     renderDisplay();
-    elements.customCourseName.value = nextName;
+    elements.courseNameInput.value = nextName;
     showToast(`课程名称已更新为 ${nextName}`);
   }
 
@@ -1697,9 +1714,6 @@
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.addEventListener('click', () => setView(button.dataset.view));
   });
-  elements.layoutModeButtons.forEach((button) => {
-    button.addEventListener('click', () => switchLayoutMode(button.dataset.layoutMode));
-  });
   elements.classSwitcherButton.addEventListener('click', () => {
     const isOpen = elements.classSwitcherButton.getAttribute('aria-expanded') === 'true';
     setClassMenuOpen(!isOpen);
@@ -1710,7 +1724,15 @@
   });
   elements.addClassForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    addClassroom(elements.newClassName.value);
+    requestAddClassroom(elements.newClassName.value);
+  });
+  elements.courseSystemButtons.forEach((button) => {
+    button.addEventListener('click', () => addClassroom(button.dataset.courseSystem));
+  });
+  elements.courseSystemCancel.addEventListener('click', cancelAddClassroom);
+  elements.courseSystemDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    cancelAddClassroom();
   });
   elements.classList.addEventListener('submit', (event) => {
     const form = event.target.closest('[data-class-rename-form]');
@@ -1766,7 +1788,7 @@
   elements.drawerBackdrop.addEventListener('click', closeDrawer);
   elements.lessonInput.addEventListener('change', () => updateLesson(elements.lessonInput.value));
   elements.collectiveGoalInput.addEventListener('change', () => updateCollectiveGoal(elements.collectiveGoalInput.value));
-  elements.customCourseName.addEventListener('change', () => updateCustomCourseName(elements.customCourseName.value));
+  elements.courseNameInput.addEventListener('change', () => updateCourseName(elements.courseNameInput.value));
   elements.rankupSoundStyle.addEventListener('change', () => {
     void saveBuiltinSound(elements.rankupSoundStyle.value);
   });
@@ -1816,7 +1838,10 @@
   });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (elements.classSwitcherButton.getAttribute('aria-expanded') === 'true') {
+    if (elements.courseSystemDialog.open) {
+      event.preventDefault();
+      cancelAddClassroom();
+    } else if (elements.classSwitcherButton.getAttribute('aria-expanded') === 'true') {
       setClassMenuOpen(false);
       elements.classSwitcherButton.focus();
     } else if (elements.historyRestoreDialog.open) {

@@ -781,15 +781,22 @@ test('renders cloud status and password-only admin dialog', async () => {
   }
 });
 
-test('switches to the custom course layout and saves its independent module scores', async () => {
+test('chooses a system when adding a course and switches systems by course', async () => {
   const payload = makeCloudState(0);
-  payload.customCourseName = '成长挑战';
   const { browser, page, fakeCloud } = await openCloudPage({ authenticated: true, cloudPayload: payload });
 
   try {
-    await page.click('[data-layout-mode="custom"]');
+    assert.equal(await page.locator('[data-layout-mode]').count(), 0);
+    assert.equal(await page.locator('#current-course-system').innerText(), '四项习惯系统');
+    await page.click('#class-switcher-button');
+    await page.fill('#new-class-name', '成长挑战');
+    await page.click('#add-class-form button[type="submit"]');
+    await page.locator('#course-system-dialog').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('[data-course-system]').count(), 2);
+    await page.click('[data-course-system="custom"]');
     await page.locator('#custom-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#custom-course-title').innerText(), '成长挑战');
+    assert.equal(await page.locator('#current-course-system').innerText(), '成长积分系统');
     assert.equal(await page.locator('.custom-module-card').count(), 5);
     assert.equal(await page.getByText('准时先锋', { exact: true }).count() > 0, true);
     assert.equal(await page.getByText('测评达人', { exact: true }).count() > 0, true);
@@ -798,22 +805,77 @@ test('switches to the custom course layout and saves its independent module scor
     assert.equal(await page.getByText('预习先行', { exact: true }).count() > 0, true);
 
     await page.click('#edit-button');
-    const punctuality = page.locator('input[data-student-id="s1"][data-field="punctuality"]');
+    const punctuality = page.locator('input[data-student-id="class-2-student-1"][data-field="punctuality"]');
     await punctuality.fill('12');
     await punctuality.press('Tab');
+    assert.equal(
+      await page.locator('input[data-student-id="class-2-student-1"][readonly]').inputValue(),
+      '12',
+    );
     await page.waitForTimeout(1000);
     const savedPayloads = await fakeCloud.getSavedPayloads();
     assert.ok(savedPayloads.length >= 1);
     const saved = savedPayloads.at(-1);
-    assert.equal(saved.layoutMode, 'custom');
-    assert.equal(saved.customCourseName, '成长挑战');
-    assert.equal(saved.classes[0].customLessonRecords['1'].s1.punctuality, 12);
+    const customCourse = saved.classes.find((course) => course.name === '成长挑战');
+    assert.equal(Object.prototype.hasOwnProperty.call(saved, 'layoutMode'), false);
+    assert.equal(customCourse.systemType, 'custom');
+    assert.equal(customCourse.customLessonRecords['1']['class-2-student-1'].punctuality, 12);
+    assert.equal(saved.classes[0].systemType, 'classic');
     assert.equal(saved.classes[0].students[0].notebook, 0);
 
     await page.click('#drawer-done');
-    await page.click('[data-layout-mode="classic"]');
+    await page.click('[data-view="ranks"]');
+    await page.locator('#ranks-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#rank-list .rank-row').count(), 1);
+    assert.match(await page.locator('#rank-list .rank-points').innerText(), /12/);
+    await page.click('#class-switcher-button');
+    await page.click('[data-class-switch="class-1"]');
+    assert.equal(await page.locator('#current-course-system').innerText(), '四项习惯系统');
+    assert.equal(await page.locator('#ranks-view').isVisible(), true);
+    assert.match(await page.locator('#rank-list .rank-points').innerText(), /0/);
+    await page.click('[data-view="scores"]');
     await page.locator('#scores-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#custom-view').isVisible(), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('course system chooser fits mobile and cancel preserves the course draft', async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    ...(resolveBrowserExecutable() ? { executablePath: resolveBrowserExecutable() } : {}),
+  });
+
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(pathToFileURL(indexPath).href, { waitUntil: 'load' });
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: 'load' });
+    await page.click('#class-switcher-button');
+    await page.fill('#new-class-name', '移动端成长课程');
+    await page.click('#add-class-form button[type="submit"]');
+    await page.locator('#course-system-dialog').waitFor({ state: 'visible' });
+
+    const layout = await page.locator('#course-system-dialog').evaluate((dialog) => {
+      const rect = dialog.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: document.documentElement.clientWidth,
+        pageOverflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        dialogOverflows: dialog.scrollWidth > dialog.clientWidth,
+      };
+    });
+    assert.ok(layout.left >= 0);
+    assert.ok(layout.right <= layout.viewportWidth);
+    assert.equal(layout.pageOverflows, false);
+    assert.equal(layout.dialogOverflows, false);
+    assert.equal(await page.locator('[data-course-system]').count(), 2);
+
+    await page.keyboard.press('Escape');
+    await page.locator('#course-system-dialog').waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#new-class-name').inputValue(), '移动端成长课程');
   } finally {
     await browser.close();
   }
@@ -904,7 +966,7 @@ test('versions runtime assets so browsers load the current leaderboard release',
     'src/rankup-sound.js',
     'src/app.js',
   ]) {
-    assert.equal(html.includes(`${asset}?v=20260811-history-v1`), true, `${asset} must be versioned`);
+    assert.equal(html.includes(`${asset}?v=20260820-course-systems-v1`), true, `${asset} must be versioned`);
   }
 });
 
@@ -937,7 +999,7 @@ test('exposes cloud sound sources and a fixed clip editor', () => {
   assert.match(html, /id="rankup-sound-enabled"/);
   assert.match(html, /固定 5\.2 秒/);
   assert.match(html, /所有设备同步/);
-  assert.match(html, /src\/rankup-sound\.js\?v=20260811-history-v1/);
+  assert.match(html, /src\/rankup-sound\.js\?v=20260820-course-systems-v1/);
 });
 
 test('saves a selected 5.2 second URL clip into cloud app state', async () => {
@@ -1346,6 +1408,7 @@ test('editing a module badge updates only that badge and persists without rank p
     await page.click('#class-switcher-button');
     await page.fill('#new-class-name', '徽章隔离班');
     await page.click('#add-class-form button[type="submit"]');
+    await page.click('[data-course-system="classic"]');
     await page.click('#edit-button');
     const secondClassYellow = page.locator('button[data-badge-student-id="class-2-student-1"][data-badge-field="notebook"][data-badge-level="yellow"]');
     await secondClassYellow.click();
@@ -1390,6 +1453,7 @@ test('creates, switches, and persists independent classrooms', async () => {
     assert.equal(await page.locator('#class-switcher-button').getAttribute('aria-haspopup'), null);
     await page.locator('#new-class-name').fill('启航二班');
     await page.locator('#add-class-form button[type="submit"]').click();
+    await page.click('[data-course-system="classic"]');
     assert.equal(await page.locator('#current-class-name').textContent(), '启航二班');
 
     await page.click('#edit-button');
@@ -1442,6 +1506,7 @@ test('canceling student deletion preserves the student and the final student sta
     await page.click('#class-switcher-button');
     await page.fill('#new-class-name', '单人班');
     await page.click('#add-class-form button[type="submit"]');
+    await page.click('[data-course-system="classic"]');
     await page.click('#edit-button');
     assert.equal(await page.locator('[data-editor-row]').count(), 1);
     assert.equal(await page.locator('[data-delete-student]').isDisabled(), true);
@@ -1474,6 +1539,7 @@ test('class rename submit, cancel, and deletion return focus to the switcher', a
     await page.click('#class-switcher-button');
     await page.fill('#new-class-name', '待维护班级');
     await page.click('#add-class-form button[type="submit"]');
+    await page.click('[data-course-system="classic"]');
     await page.click('#class-switcher-button');
     const interactionStates = [];
 

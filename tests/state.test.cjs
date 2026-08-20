@@ -135,6 +135,7 @@ test('adds, switches, renames, and removes classrooms while preserving a valid a
   assert.equal(withSecond.classes.length, 2);
   assert.equal(withSecond.activeClassId, 'class-2');
   assert.equal(stateApi.getActiveClassroom(withSecond).name, '二班');
+  assert.equal(stateApi.getActiveClassroom(withSecond).systemType, 'classic');
   assert.deepEqual(stateApi.getActiveClassroom(withSecond).students[0], {
     id: 'class-2-student-1',
     name: '新学员',
@@ -368,10 +369,8 @@ test('stores lesson records and derives cumulative points across lessons', () =>
 
 test('stores custom course scores separately and derives custom cumulative points', () => {
   let app = stateApi.normalizeAppState({
-    layoutMode: 'custom',
-    customCourseName: '成长挑战',
     activeClassId: 'class-1',
-    classes: [{ id: 'class-1', lesson: 1, students: [{ id: 'a', name: '甲' }] }],
+    classes: [{ id: 'class-1', systemType: 'custom', lesson: 1, students: [{ id: 'a', name: '甲' }] }],
   });
   let classroom = stateApi.getActiveClassroom(app);
   classroom = stateApi.updateCustomStudentScore(classroom, 'a', 'punctuality', 8);
@@ -390,9 +389,26 @@ test('stores custom course scores separately and derives custom cumulative point
   assert.equal(classroom.students[0].totalPoints, 0);
   app = stateApi.updateActiveClassroom(app, () => classroom);
   const parsed = stateApi.parseAppState(stateApi.serializeAppState(app), stateApi.createDefaultAppState());
-  assert.equal(parsed.layoutMode, 'custom');
-  assert.equal(parsed.customCourseName, '成长挑战');
+  assert.equal(stateApi.getActiveClassroom(parsed).systemType, 'custom');
   assert.equal(stateApi.getCustomStudentTotalPoints(stateApi.getActiveClassroom(parsed), 'a'), 25);
+});
+
+test('stores a system type per course and migrates the former global layout mode', () => {
+  let app = stateApi.createDefaultAppState();
+  app = stateApi.addClassroom(app, { name: '成长挑战', systemType: 'custom' });
+  assert.equal(app.classes[0].systemType, 'classic');
+  assert.equal(stateApi.getActiveClassroom(app).systemType, 'custom');
+
+  const switched = stateApi.switchClassroom(app, 'class-1');
+  assert.equal(stateApi.getActiveClassroom(switched).systemType, 'classic');
+
+  const migrated = stateApi.normalizeAppState({
+    layoutMode: 'custom',
+    activeClassId: 'legacy',
+    classes: [{ id: 'legacy', name: '旧成长课程', students: [{ id: 'a', name: '甲' }] }],
+  });
+  assert.equal(migrated.classes[0].systemType, 'custom');
+  assert.equal(Object.prototype.hasOwnProperty.call(migrated, 'layoutMode'), false);
 });
 
 test('keeps custom badges independent from the classic badge set', () => {

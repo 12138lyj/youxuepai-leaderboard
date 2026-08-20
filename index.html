@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>学能训练班 · 积分排行榜</title>
-  <link rel="stylesheet" href="styles.css?v=20260811-history-v1">
+  <link rel="stylesheet" href="styles.css?v=20260820-course-systems-v1">
 </head>
 <body>
   <header class="app-header">
@@ -19,32 +19,24 @@
 
     <div class="class-switcher">
       <button id="class-switcher-button" class="class-switcher-button" type="button" aria-expanded="false" aria-controls="class-switcher-menu">
-        <i data-lucide="users-round" aria-hidden="true"></i>
-        <span id="current-class-name"></span>
+        <i data-lucide="book-open" aria-hidden="true"></i>
+        <span class="current-course-copy">
+          <strong id="current-class-name"></strong>
+          <small id="current-course-system"></small>
+        </span>
         <i class="class-switcher-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
       </button>
       <div id="class-switcher-menu" class="class-switcher-menu" hidden>
-        <div class="class-menu-heading">选择班级</div>
+        <div class="class-menu-heading">选择课程</div>
         <div id="class-list" class="class-list"></div>
         <form id="add-class-form" class="add-class-form">
-          <label class="visually-hidden" for="new-class-name">新班级名称</label>
-          <input id="new-class-name" type="text" maxlength="30" placeholder="新班级名称" autocomplete="off">
-          <button class="class-row-action class-add-button" type="submit" aria-label="新增班级" title="新增班级">
+          <label class="visually-hidden" for="new-class-name">新课程名称</label>
+          <input id="new-class-name" type="text" maxlength="30" placeholder="新课程名称" autocomplete="off">
+          <button class="class-row-action class-add-button" type="submit" aria-label="新增课程" title="新增课程">
             <i data-lucide="plus" aria-hidden="true"></i>
           </button>
         </form>
       </div>
-    </div>
-
-    <div id="layout-switcher" class="layout-switcher" role="group" aria-label="页面排版">
-      <button class="layout-mode-button is-active" type="button" data-layout-mode="classic" aria-pressed="true">
-        <i data-lucide="layout-dashboard" aria-hidden="true"></i>
-        <span>四项习惯</span>
-      </button>
-      <button class="layout-mode-button" type="button" data-layout-mode="custom" aria-pressed="false">
-        <i data-lucide="sparkles" aria-hidden="true"></i>
-        <span data-custom-course-label>成长积分课程</span>
-      </button>
     </div>
 
     <nav class="view-switcher" aria-label="排行榜视图">
@@ -219,6 +211,39 @@
     </form>
   </dialog>
 
+  <dialog id="course-system-dialog" class="course-system-dialog" aria-labelledby="course-system-title">
+    <div class="course-system-panel">
+      <div class="course-system-header">
+        <span class="course-system-header-icon"><i data-lucide="route" aria-hidden="true"></i></span>
+        <div>
+          <p class="eyebrow">新课程 · <span id="pending-course-name"></span></p>
+          <h2 id="course-system-title">选择课程系统</h2>
+        </div>
+      </div>
+      <div class="course-system-options" role="group" aria-label="课程系统">
+        <button class="course-system-option classic" type="button" data-course-system="classic">
+          <span class="course-system-option-icon"><i data-lucide="layout-dashboard" aria-hidden="true"></i></span>
+          <span>
+            <strong>四项习惯系统</strong>
+            <small>笔记本 · 错题本 · 草稿本 · 模块</small>
+          </span>
+          <i class="course-system-arrow" data-lucide="arrow-right" aria-hidden="true"></i>
+        </button>
+        <button class="course-system-option custom" type="button" data-course-system="custom">
+          <span class="course-system-option-icon"><i data-lucide="sparkles" aria-hidden="true"></i></span>
+          <span>
+            <strong>成长积分系统</strong>
+            <small>准时 · 测评 · 作业 · 课堂活力 · 预习</small>
+          </span>
+          <i class="course-system-arrow" data-lucide="arrow-right" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="course-system-actions">
+        <button id="course-system-cancel" class="secondary-action" type="button">取消</button>
+      </div>
+    </div>
+  </dialog>
+
   <div id="drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
   <aside id="edit-drawer" class="edit-drawer" aria-labelledby="drawer-title" aria-hidden="true">
     <div class="drawer-header">
@@ -242,7 +267,7 @@
           <input id="collective-goal-input" type="number" min="1" step="100" inputmode="numeric">
         </label>
         <label class="lesson-field custom-course-name-field">
-          <span>自定义课程名称</span>
+          <span>当前课程名称</span>
           <input id="custom-course-name" type="text" maxlength="30" autocomplete="off">
         </label>
       </div>
@@ -495,13 +520,13 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="vendor/lucide.min.js?v=20260811-history-v1"></script>
-  <script src="vendor/supabase.min.js?v=20260811-history-v1"></script>
-  <script src="src/rank-rules.js?v=20260811-history-v1"></script>
-  <script src="src/state.js?v=20260811-history-v1"></script>
-  <script src="src/cloud-config.js?v=20260811-history-v1"></script>
-  <script src="src/cloud.js?v=20260811-history-v1"></script>
-  <script src="src/rankup-sound.js?v=20260811-history-v1"></script>
-  <script src="src/app.js?v=20260811-history-v1"></script>
+  <script src="vendor/lucide.min.js?v=20260820-course-systems-v1"></script>
+  <script src="vendor/supabase.min.js?v=20260820-course-systems-v1"></script>
+  <script src="src/rank-rules.js?v=20260820-course-systems-v1"></script>
+  <script src="src/state.js?v=20260820-course-systems-v1"></script>
+  <script src="src/cloud-config.js?v=20260820-course-systems-v1"></script>
+  <script src="src/cloud.js?v=20260820-course-systems-v1"></script>
+  <script src="src/rankup-sound.js?v=20260820-course-systems-v1"></script>
+  <script src="src/app.js?v=20260820-course-systems-v1"></script>
 </body>
 </html>

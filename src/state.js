@@ -7,10 +7,10 @@
   const badgeFields = ['notebook', 'errorBook', 'draft', 'module'];
   const customScoreFields = ['punctuality', 'afterClassTest', 'homework', 'participation', 'preview'];
   const customBadgeFields = [...customScoreFields];
+  const courseSystemTypes = new Set(['classic', 'custom']);
   const badgeColors = new Set(['white', 'yellow', 'purple']);
   const badgeColorOrder = { white: 0, yellow: 1, purple: 2 };
   const DEFAULT_COLLECTIVE_GOAL = 15000;
-  const DEFAULT_CUSTOM_COURSE_NAME = '成长积分课程';
   const DEFAULT_RANKUP_SOUND = Object.freeze({
     enabled: true,
     source: 'builtin',
@@ -367,10 +367,16 @@
     });
   }
 
-  function normalizeClassroom(value, index = 0) {
+  function normalizeCourseSystemType(value, fallback = 'classic') {
+    if (courseSystemTypes.has(value)) return value;
+    return courseSystemTypes.has(fallback) ? fallback : 'classic';
+  }
+
+  function normalizeClassroom(value, index = 0, fallbackSystemType = 'classic') {
     const position = Math.max(0, normalizeScore(index));
     const id = hasUsableId(value?.id) ? String(value.id) : `class-${position + 1}`;
     const name = String(value?.name || '').trim() || '未命名班级';
+    const systemType = normalizeCourseSystemType(value?.systemType, fallbackSystemType);
     const normalizedState = normalizeState(value);
     const collectiveGoal = normalizeScore(value?.collectiveGoal) || DEFAULT_COLLECTIVE_GOAL;
     const previousScores = normalizePreviousScores(value?.previousScores);
@@ -410,6 +416,7 @@
     const normalized = {
       id,
       name,
+      systemType,
       lesson: normalizedState.lesson,
       students,
       collectiveGoal,
@@ -428,14 +435,13 @@
     const classroom = normalizeClassroom({
       id: 'class-1',
       name: '暑假学习技能训练',
+      systemType: 'classic',
       ...createDefaultState(),
     });
     return {
       activeClassId: classroom.id,
       classes: [classroom],
       rankupSound: normalizeRankupSound(),
-      layoutMode: 'classic',
-      customCourseName: DEFAULT_CUSTOM_COURSE_NAME,
     };
   }
 
@@ -448,6 +454,7 @@
       .filter((classroom) => hasUsableId(classroom?.id))
       .map((classroom) => String(classroom.id)));
     const usedIds = new Set();
+    const legacySystemType = normalizeCourseSystemType(value?.layoutMode);
     const classes = value.classes.map((classroom, index) => {
       let id = hasUsableId(classroom?.id)
         ? String(classroom.id)
@@ -456,7 +463,7 @@
         id = nextSequentialId('class', reservedIds, usedIds);
       }
       usedIds.add(id);
-      return normalizeClassroom({ ...(classroom || {}), id }, index);
+      return normalizeClassroom({ ...(classroom || {}), id }, index, legacySystemType);
     });
     const requestedActiveId = hasUsableId(value?.activeClassId)
       ? String(value.activeClassId)
@@ -468,8 +475,6 @@
       activeClassId,
       classes,
       rankupSound: normalizeRankupSound(value.rankupSound),
-      layoutMode: value?.layoutMode === 'custom' ? 'custom' : 'classic',
-      customCourseName: normalizeCustomCourseName(value?.customCourseName),
     };
   }
 
@@ -582,7 +587,8 @@
     const classroom = normalizeClassroom({
       ...source,
       id,
-      name: String(source.name || '').trim() || '新班级',
+      name: String(source.name || '').trim() || '新课程',
+      systemType: normalizeCourseSystemType(source.systemType),
       lesson: source.lesson || 1,
       students: [{
         id: `${id}-student-1`,
@@ -607,10 +613,6 @@
     if (classId === appState?.activeClassId) return appState;
     if (!appState?.classes?.some((classroom) => classroom.id === classId)) return appState;
     return { ...appState, activeClassId: classId };
-  }
-
-  function normalizeCustomCourseName(value) {
-    return String(value || '').trim().slice(0, 30) || DEFAULT_CUSTOM_COURSE_NAME;
   }
 
   function renameClassroom(appState, id, name) {
@@ -707,7 +709,6 @@
     customScoreFields,
     customBadgeFields,
     DEFAULT_COLLECTIVE_GOAL,
-    DEFAULT_CUSTOM_COURSE_NAME,
     DEFAULT_RANKUP_SOUND,
     normalizeScore,
     normalizeRankupSound,
@@ -725,7 +726,7 @@
     createDefaultState,
     normalizeClassroom,
     normalizeAppState,
-    normalizeCustomCourseName,
+    normalizeCourseSystemType,
     createDefaultAppState,
     getActiveClassroom,
     updateActiveClassroom,
